@@ -1,4 +1,0 @@
-dbs cheat sheet
-SELECT cve->'id' AS cve_id, COUNT(*) FROM cves GROUP BY cve->'id' HAVING COUNT(*) > 1; (verifies repeated entries by ID)
-TRUNCATE TABLE cves RESTART IDENTITY; (removes every entry from the database cves and restarts the automatic counter)
-
