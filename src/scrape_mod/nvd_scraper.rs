@@ -1,10 +1,8 @@
 use crate::scrape_mod::consts::{
     API_KEY_NVD, MIN_RESULTS_PER_THREAD, SERVICE_SLEEP, TOTAL_PAGE, TOTAL_THREADS,
 };
-use crate::scrape_mod::structs::{
-    CPEMatch, FilteredCVE, Metrics, NVDCve, Nodes, NvdResponse, Weaknesses, EPSS,
-};
-use crate::db_api::consts::{CVE_COLUMN, CVE_ID, CVE_TABLE};
+use crate::scrape_mod::structs::{CPEMatch, FilteredCVE, HasId, Metrics, NVDCve, Nodes, NvdResponse, Weaknesses, EPSS};
+use crate::db_api::consts::{CVE_COLUMN, CVE_TABLE, ID};
 use crate::db_api::db_connection::get_db_connection;
 use crate::db_api::delete::remove_entries_id;
 use crate::db_api::insert::insert_parallel_db;
@@ -266,7 +264,7 @@ async fn parse_response_insert(cves_body: Value, end: u32, update: bool) {
 
         // Avoid duplicate entries
         if !contains_cve(&cves_to_insert, &filter_cve).await {
-            configuration.push((filter_cve.id.clone(), vec_configuration));
+            configuration.push((filter_cve.get_id().to_string(), vec_configuration));
             cves_to_insert.push(filter_cve);
         }
     }
@@ -274,7 +272,7 @@ async fn parse_response_insert(cves_body: Value, end: u32, update: bool) {
 
     // Update database if required
     if update {
-        if let Err(e) = remove_entries_id(&db_conn, CVE_TABLE, CVE_COLUMN, CVE_ID, &cves_to_insert).await {
+        if let Err(e) = remove_entries_id(&db_conn, CVE_TABLE, CVE_COLUMN, ID, &cves_to_insert).await {
             error!("Failed to remove existing entries: {}", e);
         }
     }
@@ -315,8 +313,8 @@ async fn parse_response_insert(cves_body: Value, end: u32, update: bool) {
 /// }
 /// ```
 async fn contains_cve(cves: &[FilteredCVE], cve: &FilteredCVE) -> bool {
-    if let Some(existing) = cves.iter().find(|existing| existing.id == cve.id) {
-        warn!("CVE {} already exists. Skipping insertion.", existing.id);
+    if let Some(existing) = cves.iter().find(|existing| existing.get_id() == cve.get_id()) {
+        warn!("CVE {} already exists. Skipping insertion.", existing.get_id());
         return true;
     }
     false
@@ -494,7 +492,7 @@ fn filter_and_insert(cve: NVDCve) -> (FilteredCVE, Vec<Vec<CPEMatch>>) {
 
     // Build the `FilteredCVE` object.
     let filter_cve = FilteredCVE {
-        id: cve.id.clone(),
+        id: cve.id,
         source_identifier: cve.source_identifier,
         published: cve.published.clone(),
         last_modified: cve.last_modified.clone(),
@@ -918,7 +916,7 @@ pub async fn epss_score(mut cves: Vec<FilteredCVE>) -> Vec<FilteredCVE> {
     let cves_len = cves.len(); // Compute the length outside the loop
 
     for (index, cve) in cves.iter_mut().enumerate() {
-        batch.push(cve.id.clone());
+        batch.push(cve.get_id().to_string());
 
         if batch.len() == batch_size || index == cves_len - 1 {
             let query = batch.join(",");
@@ -961,12 +959,12 @@ pub async fn epss_score(mut cves: Vec<FilteredCVE>) -> Vec<FilteredCVE> {
     for cve in &mut cves {
         let default_epss = EPSS {
             epss: "0.0".to_string(),
-            cve: cve.id.clone(),
+            cve: cve.get_id().to_string(),
             percentile: "0.0".to_string(),
             date: "unknown".to_string(),
         };
 
-        let epss = hash_score.get(&cve.id).unwrap_or(&default_epss);
+        let epss = hash_score.get(&*cve.get_id()).unwrap_or(&default_epss);
         cve.epss_score = epss
             .epss
             .parse::<f64>()

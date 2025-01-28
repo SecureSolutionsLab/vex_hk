@@ -4,8 +4,8 @@ pub const CVE_TABLE: &str = "cves";
 /// The name of the column for storing CVE identifiers in the `CVE_TABLE`.
 pub const CVE_COLUMN: &str = "cve";
 
-/// The name of the field in the `CVE_TABLE`.
-pub const CVE_ID: &str = "id";
+/// The name of the field `ID`.
+pub const ID: &str = "id";
 
 pub const EXPLOITDB_TABLE: &str = "exploit_db";
 

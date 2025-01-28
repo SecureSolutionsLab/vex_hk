@@ -1,22 +1,26 @@
 use std::time::Instant;
-use log::error;
+use log::{error, info};
 use sqlx::{query, Row};
 use crate::db_api::db_connection::get_db_connection;
 
-/// Counts the total number of CVEs in the database.
+
+/// Counts the total number of entries in the given database table.
 ///
-/// This function establishes a database connection and queries the `cves` table to
+/// This function establishes a database connection and queries the specified table to
 /// count the total number of entries. If an error occurs during connection or query
 /// execution, it logs the error and returns `0`.
 ///
+/// # Arguments
+/// - `table_name`: The name of the database table to count records from.
+///
 /// # Returns
-/// - The total number of CVEs in the database as `i64`.
+/// - The total number of entries in the specified table as `i64`.
 /// - Returns `0` if an error occurs.
 ///
 /// # Behavior
-/// - Executes the SQL query:
+/// - Constructs and executes an SQL query dynamically:
 ///   ```sql
-///   SELECT count(*) FROM cves;
+///   SELECT count(*) FROM table_name;
 ///   ```
 /// - Logs an error if the query returns more than one result, which is unexpected.
 ///
@@ -25,32 +29,49 @@ use crate::db_api::db_connection::get_db_connection;
 ///
 /// # Example
 /// ```no_run
-/// let count = count_cve_db().await;
-/// println!("Total CVEs in database: {}", count);
+/// let count = count_table_entries("cves").await;
+/// println!("Total entries in table: {}", count);
 /// ```
-pub async fn count_cve_db() -> i64 {
-    let db_conn = match get_db_connection().await{
-        Ok(conn) => {conn}
+pub async fn count_table_entries(table_name: &str) -> i64 {
+    let db_conn = match get_db_connection().await {
+        Ok(conn) => conn,
         Err(e) => {
-            error!("error in connection {}", e);
+            error!("Error in database connection: {}", e);
             return 0;
         }
     };
-    let query_db = match query("SELECT count(*) FROM CVES;")
+
+    // Build the SQL query dynamically
+    let query_str = format!("SELECT count(*) AS count FROM {};", table_name);
+
+    let query_db = match query(&query_str)
         .fetch_all(&db_conn)
-        .await {
-        Ok(query_result) => {query_result}
+        .await
+    {
+        Ok(query_result) => query_result,
         Err(e) => {
-            error!("error in query db {}", e);
+            error!("Error in querying database for table {}: {}", table_name, e);
             return 0;
         }
     };
-    let count_db = query_db.len() as i64;
-    if count_db > 1 {
-        error!("something went wrong with query: count_cve_db");
+
+    // Ensure that only a single result is returned
+    if query_db.len() != 1 {
+        error!("Unexpected query result count for table {}: {}", table_name, query_db.len());
+        return 0;
     }
-    let count: i64 = query_db.get(0).unwrap().get("count");
-    count
+
+    // Extract and return the count from the query result
+    match query_db.get(0).unwrap().try_get::<i64, _>("count") {
+        Ok(count) => {
+            info!("Successfully counted {} entries in table {}", count, table_name);
+            count
+        },
+        Err(e) => {
+            error!("Failed to extract count from query result: {}", e);
+            0
+        }
+    }
 }
 
 
@@ -164,3 +185,4 @@ pub async fn verify_database() -> usize {
     );
     query.len()
 }
+

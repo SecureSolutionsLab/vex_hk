@@ -1,77 +1,78 @@
-use crate::scrape_mod::structs::FilteredCVE;
+use crate::scrape_mod::structs::{FilteredCVE, HasId};
 use log::{error, info};
 use sqlx::{Pool, Postgres};
 use std::time::Instant;
 use crate::db_api::utils::{execute_query_data};
+use async_trait::async_trait;
 
-/// Removes entries from the specified database table based on matching CVE IDs.
+/// Removes entries from the specified database table based on matching IDs.
 ///
 /// This function deletes rows from a given table in the database where the value in the specified
-/// column matches the ID of the provided CVEs. It is primarily used to update or clean the database
-/// before inserting new CVE data.
+/// column matches the ID of the provided entries. It can be used generically for any struct that
+/// implements the `HasId` trait.
 ///
 /// # Parameters
 /// - `db`: A reference to the `Pool<Postgres>` database connection pool.
 /// - `table`: The name of the table from which entries will be removed.
 /// - `column`: The name of the column containing the JSONB field to match against.
 /// - `field`: The specific key within the JSONB column to match (e.g., "id").
-/// - `cves`: A vector of `FilteredCVE` objects whose IDs will be used for deletion.
+/// - `entries`: A slice of generic structs implementing the `HasId` trait.
 ///
 /// # Returns
 /// - `Ok(())` if the entries were successfully removed.
 /// - `Err(sqlx::Error)` if an error occurs during the deletion process.
 ///
-/// # Errors
-/// This function propagates database errors to the caller for handling.
-///
 /// # Example
 /// ```no_run
-/// use sqlx::Pool;
-/// use sqlx::Postgres;
-///
-/// let db: Pool<Postgres> = /* get your database connection pool */;
-/// let table = "cves";
-/// let column = "cve";
-/// let field = "id";
-/// let cves = vec![
-///     FilteredCVE { id: "CVE-2024-12345".to_string(), /* other fields */ },
-///     FilteredCVE { id: "CVE-2024-67890".to_string(), /* other fields */ },
+/// let entries = vec![
+///     MyStruct { id: "123".to_string(), other_field: "example".to_string() },
+///     MyStruct { id: "456".to_string(), other_field: "example2".to_string() },
 /// ];
 ///
-/// match remove_entries_id(&db, table, column, field, &cves).await {
-///     Ok(_) => println!("Entries successfully removed."),
-///     Err(e) => eprintln!("Failed to remove entries: {}", e),
-/// }
+/// remove_entries_id(&db, "my_table", "data", "id", &entries).await?;
 /// ```
-pub async fn remove_entries_id(
+pub async fn remove_entries_id<T>(
     db: &Pool<Postgres>,
     table: &str,
     column: &str,
     field: &str,
-    cves: &Vec<FilteredCVE>,
-) -> Result<(), sqlx::Error> {
+    entries: &[T],
+) -> Result<(), sqlx::Error>
+where
+    T: HasId + Sync + Send,
+{
     let instant = Instant::now();
-    let mut id_vec = vec![];
+
+    let ids: Vec<String> = entries.iter().map(|e| e.get_id().to_string()).collect();
+
     let sql_query = format!(
         "DELETE FROM {} WHERE {}->>'{}' = ANY($1)",
         table, column, field
     );
-    for cve in cves {
-        id_vec.push(cve.id.to_string());
-    }
-    let result = match execute_query_data(db, &*sql_query, &id_vec).await
-    {
-        Ok(result) => result,
-        Err(e) => {
-            error!("error removing {} data entries - error {}", cves.len(), e);
-            return Err(e);
+
+    let result = sqlx::query(&sql_query)
+        .bind(&ids)
+        .execute(db)
+        .await;
+
+    match result {
+        Ok(_) => {
+            info!(
+                "Deleted {} entries from {} in {:.2?}",
+                ids.len(),
+                table,
+                instant.elapsed()
+            );
+            Ok(())
         }
-    };
-    info!(
-        "database deletion {:.2?}, size {} {:?}",
-        instant.elapsed(),
-        cves.len(),
-        result
-    );
-    Ok(())
+        Err(e) => {
+            error!(
+                "Error removing {} entries from {}: {}",
+                ids.len(),
+                table,
+                e
+            );
+            Err(e)
+        }
+    }
 }

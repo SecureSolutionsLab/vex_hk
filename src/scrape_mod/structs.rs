@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,6 +21,7 @@ pub(crate) struct NVDCve {
 
     pub references: Vec<References>,
 }
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Description {
@@ -190,10 +192,22 @@ pub struct FilteredCVE {
     pub vulnerable_product: Vec<String>,
 }
 
+impl HasId for FilteredCVE {
+    fn get_id(&self) -> &str {
+        &self.id
+    }
+}
 
-#[derive(Debug, Serialize, Deserialize)]
+// Trait to enforce the presence of an `id` field
+#[async_trait]
+pub trait HasId {
+    fn get_id(&self) -> &str;
+}
+
+
+#[derive(Debug, Deserialize, Clone, Eq, PartialEq, Hash, Serialize)]
 pub struct ExploitDB {
-    pub id: String,
+    id: String,
     pub file: String,
     pub description: String,
     pub date_published: String,
@@ -210,8 +224,15 @@ pub struct ExploitDB {
     pub screenshot_url: String,
     pub application_url: String,
     pub source_url: String
-
 }
+
+impl HasId for ExploitDB {
+    fn get_id(&self) -> &str {
+        &self.id
+    }
+}
+
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EPSS {
@@ -238,6 +259,12 @@ pub struct OTX {
     #[serde(rename = "schema_version")]
     pub schema_version: Option<String>,
 }
+
+// impl HasId for OTX {
+//     fn get_id(&self) -> &str {
+//         &self.id
+//     }
+// }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Reference {
