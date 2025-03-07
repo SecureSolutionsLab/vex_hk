@@ -5,7 +5,7 @@ use crate::scrape_mod::structs::{CPEMatch, FilteredCVE, HasId, Metrics, NVDCve, 
 use crate::db_api::consts::{CVE_COLUMN, CVE_TABLE, ID};
 use crate::db_api::db_connection::get_db_connection;
 use crate::db_api::delete::remove_entries_id;
-use crate::db_api::insert::insert_parallel_db;
+use crate::db_api::insert::insert_parallel_cve;
 use log::{error, info, warn};
 use reqwest::{Client, Response};
 use serde_json::Value;
@@ -103,7 +103,7 @@ pub async fn query_nvd_cvecount(query_count: &str) -> Result<u32, Box<dyn std::e
 /// ```no_run
 /// let cve_count = 1000;
 /// let query = "cpeName=cpe:/o:debian:debian_linux".to_string();
-/// query_nvd_and_insert(cve_count, query, true).await;
+/// scrape_nvd(cve_count, query, true).await;
 /// ```
 ///
 /// # Dependencies
@@ -111,7 +111,7 @@ pub async fn query_nvd_cvecount(query_count: &str) -> Result<u32, Box<dyn std::e
 ///
 /// # Errors
 /// - Logs errors if any threads fail or encounter issues during processing.
-pub async fn query_nvd_and_insert(cve_count: u32, query: String, update: bool) {
+pub async fn scrape_nvd(cve_count: u32, query: String, update: bool) {
     // Determine the number of threads to use
     let local_threads = if cve_count / TOTAL_PAGE > 1 || cve_count / MIN_RESULTS_PER_THREAD >= 1 {
         TOTAL_THREADS
@@ -164,7 +164,7 @@ pub async fn query_nvd_and_insert(cve_count: u32, query: String, update: bool) {
 /// - Logs the time taken for the thread to complete its work.
 ///
 /// # Example
-/// This function is not typically called directly but is used internally by [`query_nvd_and_insert`].
+/// This function is not typically called directly but is used internally by [`scrape_nvd`].
 ///
 /// # Errors
 /// - Logs errors if parsing or inserting data fails.
@@ -277,7 +277,7 @@ async fn parse_response_insert(cves_body: Value, end: u32, update: bool) {
         }
     }
     // Insert data into the database
-    if let Err(e) = insert_parallel_db(&db_conn, CVE_TABLE, CVE_COLUMN, &cves_to_insert, configuration).await {
+    if let Err(e) = insert_parallel_cve(&db_conn, CVE_TABLE, CVE_COLUMN, &cves_to_insert, configuration).await {
         error!("Failed to insert data into the database: {}", e);
     }
 

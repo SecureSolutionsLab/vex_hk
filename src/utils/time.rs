@@ -1,7 +1,7 @@
 use chrono::Utc;
-use crate::utils::config::{read_config, store_key};
+use crate::utils::config::{read_key, store_key};
 
-/// Retrieves the timestamp for the last crawl from the configuration file.
+/// Retrieves the timestamp for the last scrape from the configuration file.
 ///
 /// This function fetches the value associated with the `last_timestamp` key from the
 /// configuration file. If the key is not found, it generates a new timestamp based
@@ -10,7 +10,7 @@ use crate::utils::config::{read_config, store_key};
 /// the NVD database.
 ///
 /// # Returns
-/// - A `String` representing the last crawl timestamp in the format `Y-m-dTH:M:SZ`.
+/// - A `String` representing the last scrape timestamp in the format `Y-m-dTH:M:SZ`.
 ///
 /// # Behavior
 /// - Reads the `last_timestamp` value from the configuration file using `read_config`.
@@ -30,7 +30,7 @@ use crate::utils::config::{read_config, store_key};
 /// # Errors
 /// - Panics if reading or writing to the configuration file fails.
 pub fn get_timestamp() -> String {
-    let value = read_config("last_timestamp".to_string());
+    let value = read_key("last_timestamp".to_string());
 
     let timestamp = if value.is_none() {
         let local_timestamp = instant_to_datetime();

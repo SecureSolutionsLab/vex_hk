@@ -37,13 +37,13 @@ struct Config {
 ///
 /// # Example
 /// ```no_run
-/// let value = read_config("example_key".to_string());
+/// let value = read_key("example_key".to_string());
 /// match value {
 ///     Some(v) => println!("Value: {}", v),
 ///     None => println!("Key not found or file missing"),
 /// }
 /// ```
-pub fn read_config(key: String) -> Option<String> {
+pub fn read_key(key: String) -> Option<String> {
     let mut file = match OpenOptions::new().read(true).open(FILE_PATH) {
         Ok(file) => file,
         Err(_) => {

@@ -1,9 +1,7 @@
-use crate::scrape_mod::structs::{FilteredCVE, HasId};
+use crate::scrape_mod::structs::{HasId};
 use log::{error, info};
 use sqlx::{Pool, Postgres};
 use std::time::Instant;
-use crate::db_api::utils::{execute_query_data};
-use async_trait::async_trait;
 
 /// Removes entries from the specified database table based on matching IDs.
 ///

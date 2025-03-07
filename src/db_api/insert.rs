@@ -156,7 +156,7 @@ pub async fn insert_parallel<T: serde::Serialize>(
 /// let configurations = vec![
 ///     ("CVE-2024-1234".to_string(), vec![vec![CPEMatch::default()]])
 /// ];
-/// insert_parallel_db(&db_conn, "cve_table", "data", &cves, configurations).await.unwrap();
+/// insert_parallel_cve(&db_conn, "cve_table", "data", &cves, configurations).await.unwrap();
 /// ```
 ///
 /// # Advantages
@@ -165,7 +165,7 @@ pub async fn insert_parallel<T: serde::Serialize>(
 ///
 /// # Limitations
 /// - Requires memory to store all data before insertion.
-pub async fn insert_parallel_db(
+pub async fn insert_parallel_cve(
     db_conn: &PgPool,
     table: &str,
     column: &str,
