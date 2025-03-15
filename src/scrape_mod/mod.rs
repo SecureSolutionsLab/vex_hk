@@ -5,7 +5,6 @@ pub mod nvd_scraper;
 pub mod osv_scraper;
 pub mod structs;
 
-
 fn _private_hello() {
     println!("hello world")
 }

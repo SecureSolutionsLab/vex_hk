@@ -1,7 +1,7 @@
 use async_trait::async_trait;
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use chrono::{DateTime, FixedOffset};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct NVDCve {
@@ -23,7 +23,6 @@ pub(crate) struct NVDCve {
 
     pub references: Vec<References>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Description {
@@ -206,7 +205,6 @@ pub trait HasId {
     fn get_id(&self) -> &str;
 }
 
-
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq, Hash, Serialize)]
 pub struct ExploitDB {
     id: String,
@@ -225,7 +223,7 @@ pub struct ExploitDB {
     pub aliases: String,
     pub screenshot_url: String,
     pub application_url: String,
-    pub source_url: String
+    pub source_url: String,
 }
 
 impl HasId for ExploitDB {
@@ -234,8 +232,6 @@ impl HasId for ExploitDB {
     }
 }
 
-
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EPSS {
     pub cve: String,
@@ -243,7 +239,6 @@ pub struct EPSS {
     pub percentile: String,
     pub date: String,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OTX {
@@ -314,7 +309,6 @@ pub struct DatabaseSpecific {
     pub source: Option<String>,
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OSV {
     pub schema_version: String,
@@ -348,7 +342,6 @@ pub struct Severity {
     pub r#type: String,
     pub score: String,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Credit {

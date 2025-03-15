@@ -1,7 +1,6 @@
 use dotenv::dotenv;
 use log::error;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{Pool, Postgres};
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::env;
 
 /// Retrieves the database connection string from environment variables.

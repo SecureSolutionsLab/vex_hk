@@ -1,7 +1,9 @@
 use crate::utils::config::_file_exists;
-use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::{
+    collections::HashMap,
+    fs::{File, OpenOptions},
+    io::{BufRead, BufReader, Write},
+};
 
 /// Creates a new environment file at the specified path.
 ///

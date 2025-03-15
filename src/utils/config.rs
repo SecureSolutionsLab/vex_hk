@@ -1,8 +1,10 @@
-use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::{Read, Seek, Write};
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fs::OpenOptions,
+    io::{Read, Seek, Write},
+    path::Path,
+};
 
 /// Location of the resources file
 const FILE_PATH: &str = "src/resources/config.conf";
@@ -130,7 +132,6 @@ pub fn store_key(key: String, value: String) {
         .expect("Failed to write file");
 }
 
-
 /// Checks if a file exists at the specified path.
 ///
 /// This utility function checks for the existence of a file or directory at
@@ -154,4 +155,3 @@ pub fn store_key(key: String, value: String) {
 pub fn _file_exists(file_path: &str) -> bool {
     Path::new(file_path).exists()
 }
-

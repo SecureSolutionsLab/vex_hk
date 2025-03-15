@@ -1,4 +1,4 @@
-use crate::scrape_mod::structs::{HasId};
+use crate::scrape_mod::structs::HasId;
 use log::{error, info};
 use sqlx::{Pool, Postgres};
 use std::time::Instant;
@@ -48,10 +48,7 @@ where
         table, column, field
     );
 
-    let result = sqlx::query(&sql_query)
-        .bind(&ids)
-        .execute(db)
-        .await;
+    let result = sqlx::query(&sql_query).bind(&ids).execute(db).await;
 
     match result {
         Ok(_) => {
@@ -64,12 +61,7 @@ where
             Ok(())
         }
         Err(e) => {
-            error!(
-                "Error removing {} entries from {}: {}",
-                ids.len(),
-                table,
-                e
-            );
+            error!("Error removing {} entries from {}: {}", ids.len(), table, e);
             Err(e)
         }
     }

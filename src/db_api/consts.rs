@@ -11,7 +11,6 @@ pub const EXPLOITDB_TABLE: &str = "exploit_db";
 
 pub const EXPLOITDB_COLUMN: &str = "exploit_data";
 
-
 pub const OSV_TABLE: &str = "osv";
 
 pub const OSV_COLUMN: &str = "osv_data";

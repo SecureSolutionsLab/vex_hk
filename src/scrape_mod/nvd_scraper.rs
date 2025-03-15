@@ -1,20 +1,29 @@
-use crate::scrape_mod::consts::{
-    API_KEY_NVD, MIN_RESULTS_PER_THREAD, SERVICE_SLEEP, TOTAL_PAGE, TOTAL_THREADS,
-};
-use crate::scrape_mod::structs::{CPEMatch, FilteredCVE, HasId, Metrics, NVDCve, Nodes, NvdResponse, Weaknesses, EPSS};
-use crate::db_api::consts::{CVE_COLUMN, CVE_TABLE, ID};
-use crate::db_api::db_connection::get_db_connection;
-use crate::db_api::delete::remove_entries_id;
-use crate::db_api::insert::insert_parallel_cve;
 use log::{error, info, warn};
 use reqwest::{Client, Response};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-use std::time::{Duration, Instant};
-use std::usize;
+use std::{
+    time::{Duration, Instant},
+    usize,
+};
 use thiserror::Error;
 use tokio::time::sleep;
+
+use crate::{
+    db_api::{
+        consts::{CVE_COLUMN, CVE_TABLE, ID},
+        db_connection::get_db_connection,
+        delete::remove_entries_id,
+        insert::insert_parallel_cve,
+    },
+    scrape_mod::{
+        consts::{API_KEY_NVD, MIN_RESULTS_PER_THREAD, SERVICE_SLEEP, TOTAL_PAGE, TOTAL_THREADS},
+        structs::{
+            CPEMatch, FilteredCVE, HasId, Metrics, NVDCve, Nodes, NvdResponse, Weaknesses, EPSS,
+        },
+    },
+};
 
 /// Fetches the total number of CVEs matching a query from the NVD API.
 ///
@@ -54,9 +63,7 @@ pub async fn query_nvd_cvecount(query_count: &str) -> Result<u32, Box<dyn std::e
 
     // Make the API request
     let response = match request_nvd(&*full_url).await {
-        Ok(response) => {
-            response
-        }
+        Ok(response) => response,
         Err(e) => {
             error!("Network error occurred: {}", e);
             return Ok(0);
@@ -70,7 +77,6 @@ pub async fn query_nvd_cvecount(query_count: &str) -> Result<u32, Box<dyn std::e
             return Ok(0);
         }
     };
-
 
     info!(
         "Query completed in {:.2?}. Total results {}. URL: {}",
@@ -272,16 +278,29 @@ async fn parse_response_insert(cves_body: Value, end: u32, update: bool) {
 
     // Update database if required
     if update {
-        if let Err(e) = remove_entries_id(&db_conn, CVE_TABLE, CVE_COLUMN, ID, &cves_to_insert).await {
+        if let Err(e) =
+            remove_entries_id(&db_conn, CVE_TABLE, CVE_COLUMN, ID, &cves_to_insert).await
+        {
             error!("Failed to remove existing entries: {}", e);
         }
     }
     // Insert data into the database
-    if let Err(e) = insert_parallel_cve(&db_conn, CVE_TABLE, CVE_COLUMN, &cves_to_insert, configuration).await {
+    if let Err(e) = insert_parallel_cve(
+        &db_conn,
+        CVE_TABLE,
+        CVE_COLUMN,
+        &cves_to_insert,
+        configuration,
+    )
+    .await
+    {
         error!("Failed to insert data into the database: {}", e);
     }
 
-    info!("Successfully processed and inserted CVEs. Execution time: {:.2?}", now.elapsed());
+    info!(
+        "Successfully processed and inserted CVEs. Execution time: {:.2?}",
+        now.elapsed()
+    );
 }
 
 /// Checks if a CVE exists in a list of filtered CVEs.
@@ -313,8 +332,14 @@ async fn parse_response_insert(cves_body: Value, end: u32, update: bool) {
 /// }
 /// ```
 async fn contains_cve(cves: &[FilteredCVE], cve: &FilteredCVE) -> bool {
-    if let Some(existing) = cves.iter().find(|existing| existing.get_id() == cve.get_id()) {
-        warn!("CVE {} already exists. Skipping insertion.", existing.get_id());
+    if let Some(existing) = cves
+        .iter()
+        .find(|existing| existing.get_id() == cve.get_id())
+    {
+        warn!(
+            "CVE {} already exists. Skipping insertion.",
+            existing.get_id()
+        );
         return true;
     }
     false
@@ -366,19 +391,17 @@ pub async fn body_verifier(
 
         // Perform the API request
         match request_nvd(&get_cves).await {
-            Ok(response) => {
-                match response.text().await {
-                    Ok(nvd_response) => {
-                        if http_errors(&nvd_response) {
-                            service_unavailable = false;
-                        }
-                        body = nvd_response;
+            Ok(response) => match response.text().await {
+                Ok(nvd_response) => {
+                    if http_errors(&nvd_response) {
+                        service_unavailable = false;
                     }
-                    Err(e) => {
-                        error!("Failed to read response body: {:?}", e);
-                    }
+                    body = nvd_response;
                 }
-            }
+                Err(e) => {
+                    error!("Failed to read response body: {:?}", e);
+                }
+            },
             Err(e) => {
                 error!("Request failed for URL {}: {:?}", get_cves, e);
             }
@@ -393,7 +416,6 @@ pub async fn body_verifier(
 
     body
 }
-
 
 /// Checks for predefined HTTP error messages in a response body.
 ///
@@ -429,7 +451,6 @@ fn http_errors(body: &str) -> bool {
 
     !ERROR_PATTERNS.iter().any(|error| body.contains(error))
 }
-
 
 /// Processes an `NVDCve` object, filters and extracts relevant information, and generates
 /// a `FilteredCVE` object along with associated configurations.
@@ -513,7 +534,6 @@ fn filter_and_insert(cve: NVDCve) -> (FilteredCVE, Vec<Vec<CPEMatch>>) {
 
     (filter_cve, configurations)
 }
-
 
 /// Generates configurations based on combinations of nodes and operators.
 ///
@@ -636,7 +656,6 @@ fn comb<T: Clone>(vectors: &[Vec<T>]) -> Vec<Vec<T>> {
         .collect()
 }
 
-
 /// Extracts unique English descriptions of weaknesses from a list of `Weaknesses`.
 ///
 /// This function iterates over a vector of `Weaknesses` objects and extracts tuples containing
@@ -702,7 +721,6 @@ fn get_weaknesses(weak_vec: Vec<Weaknesses>) -> Vec<(String, String)> {
 
     result
 }
-
 
 /// Retrieves the latest CVSS score attributed by the NVD.
 ///
@@ -809,7 +827,6 @@ fn get_latest_cvss(cve_metrics: Metrics) -> (String, String, f64, String, f64, f
     )
 }
 
-
 /// Custom error type for handling API request errors.
 #[derive(Debug, Error)]
 enum RequestNvdError {
@@ -846,21 +863,14 @@ enum RequestNvdError {
 async fn request_nvd(url: &str) -> Result<Response, RequestNvdError> {
     let client = Client::new();
 
-    let response = client
-        .get(url)
-        .header("apiKey", API_KEY_NVD)
-        .send()
-        .await?;
+    let response = client.get(url).header("apiKey", API_KEY_NVD).send().await?;
 
     if !response.status().is_success() {
         return Err(RequestNvdError::StatusCodeError(response.status()));
     }
 
-
     Ok(response)
 }
-
-
 
 /// Validates application constants to ensure logical consistency.
 ///
@@ -931,14 +941,14 @@ pub async fn epss_score(mut cves: Vec<FilteredCVE>) -> Vec<FilteredCVE> {
                 .await
                 .expect("Failed to read response from EPSS API");
 
-            let response: Value = serde_json::from_str(&resp)
-                .expect("Failed to parse JSON response from EPSS API");
+            let response: Value =
+                serde_json::from_str(&resp).expect("Failed to parse JSON response from EPSS API");
 
             if let Some(total) = response["total"].as_u64() {
                 for i in 0..total as usize {
-                    if let Ok(epss_entry) = serde_json::from_value::<EPSS>(
-                        response["data"][i].clone(),
-                    ) {
+                    if let Ok(epss_entry) =
+                        serde_json::from_value::<EPSS>(response["data"][i].clone())
+                    {
                         hash_score.insert(epss_entry.cve.clone(), epss_entry);
                     } else {
                         error!(
@@ -965,13 +975,10 @@ pub async fn epss_score(mut cves: Vec<FilteredCVE>) -> Vec<FilteredCVE> {
         };
 
         let epss = hash_score.get(&*cve.get_id()).unwrap_or(&default_epss);
-        cve.epss_score = epss
-            .epss
-            .parse::<f64>()
-            .unwrap_or_else(|_| {
-                error!("Failed to parse EPSS score for CVE: {}", epss.cve);
-                0.0
-            });
+        cve.epss_score = epss.epss.parse::<f64>().unwrap_or_else(|_| {
+            error!("Failed to parse EPSS score for CVE: {}", epss.cve);
+            0.0
+        });
     }
 
     cves

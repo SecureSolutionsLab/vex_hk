@@ -1,21 +1,30 @@
 use chrono::NaiveDate;
-
-use std::io::{BufRead, BufReader};
-use std::iter::once;
-
-use crate::db_api::consts::CVE_TABLE;
-use crate::db_api::db_connection::get_db;
-use crate::db_api::query_db::{count_table_entries, verify_database};
-use crate::scrape_mod::alienvault_scraper::alienvault_scraper;
-use crate::scrape_mod::exploitdb_scraper::exploitdb_scrape;
-use crate::scrape_mod::nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd};
-use crate::scrape_mod::osv_scraper::{scrape_osv, scrape_osv_update};
-use crate::utils::config::store_key;
-use crate::utils::time::{get_timestamp, instant_to_datetime};
 use log::error;
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::{
+    io::{BufRead, BufReader},
+    iter::once,
+    path::Path,
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
+
+use crate::{
+    db_api::{
+        consts::CVE_TABLE,
+        db_connection::get_db,
+        query_db::{count_table_entries, verify_database},
+    },
+    scrape_mod::{
+        alienvault_scraper::alienvault_scraper,
+        exploitdb_scraper::exploitdb_scrape,
+        nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd},
+        osv_scraper::{scrape_osv, scrape_osv_update},
+    },
+    utils::{
+        config::store_key,
+        time::{get_timestamp, instant_to_datetime},
+    },
+};
 
 //Verifies every hour
 const TIME_INTERVAL: u64 = 3600;

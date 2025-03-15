@@ -1,6 +1,5 @@
 use log::{error, info, warn};
-use vex_hk::{osv_scraper};
-
+use vex_hk::osv_scraper;
 
 #[tokio::main]
 async fn main() {

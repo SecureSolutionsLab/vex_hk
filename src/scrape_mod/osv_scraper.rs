@@ -1,32 +1,38 @@
-use crate::db_api::consts::{ID, OSV_COLUMN, OSV_TABLE};
-use crate::db_api::db_connection::get_db_connection;
-use crate::db_api::delete::remove_entries_id;
-use crate::db_api::insert::insert_parallel;
-use crate::db_api::query_db::find_missing_or_stale_entries_by_id;
-use crate::db_api::structs::{EntryInput, EntryStatus};
-use crate::scrape_mod::consts::{OSV_BATCH_SIZE, OSV_INDEX, OSV_TIMESTAMP, TOTAL_THREADS};
-use crate::scrape_mod::structs::{Sitemap, OSV};
-use crate::utils::config::{read_key, store_key};
 use chrono::{DateTime, FixedOffset, Utc};
 use log::{error, info};
-use quick_xml::events::Event;
-use quick_xml::{name, Reader};
+use quick_xml::{events::Event, Reader};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use std::cmp::min;
-use std::collections::HashMap;
-use std::error::Error;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::{fs, thread};
+use std::{
+    cmp::min,
+    collections::HashMap,
+    error::Error,
+    fs,
+    fs::File,
+    io::{Read, Write},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use thiserror::Error;
-use tokio::sync::Mutex;
-use tokio::time::sleep;
+use tokio::{sync::Mutex, time::sleep};
 use zip::ZipArchive;
 
+use crate::{
+    db_api::{
+        consts::{ID, OSV_COLUMN, OSV_TABLE},
+        db_connection::get_db_connection,
+        delete::remove_entries_id,
+        insert::insert_parallel,
+        query_db::find_missing_or_stale_entries_by_id,
+        structs::{EntryInput, EntryStatus},
+    },
+    scrape_mod::{
+        consts::{OSV_BATCH_SIZE, OSV_INDEX, OSV_TIMESTAMP, TOTAL_THREADS},
+        structs::{Sitemap, OSV},
+    },
+    utils::config::{read_key, store_key},
+};
 
 /// Custom error type for `fetch_osv_details`.
 #[derive(Error, Debug)]
@@ -603,8 +609,6 @@ async fn ecosystem_parse(
 fn extract_title(url: &str) -> Option<&str> {
     url.rsplit('/').find(|segment| !segment.is_empty())
 }
-
-
 
 /// Asynchronously fetches an HTML page from the given URL, extracts a JSON data URL from it,
 /// fetches the JSON from that URL, and deserializes it into an `OSV` struct.

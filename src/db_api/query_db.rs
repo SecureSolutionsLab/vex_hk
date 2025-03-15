@@ -1,10 +1,9 @@
-use std::fmt::Debug;
-use crate::db_api::db_connection::get_db_connection;
 use log::{error, info};
-use sqlx::{query, Error, PgPool, Row};
-use std::time::Instant;
 use serde_json::Value;
-use sqlx::postgres::PgRow;
+use sqlx::{postgres::PgRow, query, Error, PgPool, Row};
+use std::{fmt::Debug, time::Instant};
+
+use crate::db_api::db_connection::get_db_connection;
 
 /// Counts the total number of entries in the given database table.
 ///
@@ -189,7 +188,6 @@ pub async fn verify_database() -> usize {
     );
     query.len()
 }
-
 
 /// Compares input entries (provided as JSON data) with records in the specified table and column,
 /// returning the status of each entry in a generic row type.

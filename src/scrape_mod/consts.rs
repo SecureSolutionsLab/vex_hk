@@ -18,9 +18,8 @@ pub(crate) const NEW_FILE_EXPLOIT: &str = "src/resources/files_exploits_new.csv"
 
 pub(crate) const USER_PASSWORD: &str = "<USER_PASSWORD>";
 
-
 pub(crate) const OSV_INDEX: &str = "https://osv.dev/sitemap_index.xml";
 
-pub(crate) const OSV_TIMESTAMP: &str ="last_timestamp_osv";
+pub(crate) const OSV_TIMESTAMP: &str = "last_timestamp_osv";
 
-pub(crate) const OSV_BATCH_SIZE:usize = 500;
+pub(crate) const OSV_BATCH_SIZE: usize = 500;

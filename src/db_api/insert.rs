@@ -1,6 +1,7 @@
-use crate::scrape_mod::structs::{CPEMatch, FilteredCVE};
-use crate::db_api::db_connection::{get_db_connection};
-use crate::db_api::utils::execute_query_data;
+use crate::{
+    db_api::{db_connection::get_db_connection, utils::execute_query_data},
+    scrape_mod::structs::{CPEMatch, FilteredCVE},
+};
 use log::{error, info};
 use serde_json::json;
 use sqlx::{query, Error, PgPool};
