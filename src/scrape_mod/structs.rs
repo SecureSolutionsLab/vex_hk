@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+#[cfg(feature = "osv")]
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -161,6 +162,7 @@ pub struct References {
     tags: Vec<String>,
 }
 
+#[cfg(feature = "nvd")]
 #[derive(Deserialize, Debug)]
 pub(crate) struct NvdResponse {
     #[serde(rename = "totalResults")]
@@ -352,6 +354,7 @@ pub struct Credit {
     pub r#type: String,
 }
 
+#[cfg(feature = "osv")]
 #[derive(Clone, Debug)]
 pub struct Sitemap {
     pub(crate) loc: String,

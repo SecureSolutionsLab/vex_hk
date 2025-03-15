@@ -1,4 +1,5 @@
 use log::{error, info, warn};
+#[cfg(feature = "osv")]
 use vex_hk::osv_scraper;
 
 #[tokio::main]
@@ -10,5 +11,6 @@ async fn main() {
     error!("This is an error.");
     // _exploit_vulnerability_hunter().await;
     // _exploitdb_scraper().await;
+    #[cfg(feature = "osv")]
     osv_scraper().await;
 }

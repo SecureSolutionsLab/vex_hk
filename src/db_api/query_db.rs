@@ -1,7 +1,10 @@
 use log::{error, info};
 use serde_json::Value;
 use sqlx::{postgres::PgRow, query, Error, PgPool, Row};
-use std::{fmt::Debug, time::Instant};
+use std::fmt::Debug;
+
+#[cfg(feature = "nvd")]
+use std::time::Instant;
 
 use crate::db_api::db_connection::get_db_connection;
 
@@ -168,6 +171,7 @@ pub async fn _verify_cve_db(id: &str) -> bool {
 /// # Performance
 /// This function may take considerable time for large datasets, as it involves
 /// grouping and counting operations on the entire `cves` table.
+#[cfg(feature = "nvd")]
 pub async fn verify_database() -> usize {
     let instant = Instant::now();
     let db = match get_db_connection().await {

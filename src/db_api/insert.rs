@@ -166,6 +166,8 @@ pub async fn insert_parallel<T: serde::Serialize>(
 ///
 /// # Limitations
 /// - Requires memory to store all data before insertion.
+// todo: nvd dependent (breaks compilation otherwise)
+#[cfg(feature = "nvd")]
 pub async fn insert_parallel_cve(
     db_conn: &PgPool,
     table: &str,

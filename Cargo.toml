@@ -20,3 +20,9 @@ quick-xml = "0.37.2"
 thiserror = "2.0.12"
 env_logger = "0.11.6"
 
+[features]
+"default" = ["osv"]
+"alienvault" = []
+"exploitdb" = []
+"nvd" = []
+"osv" = []

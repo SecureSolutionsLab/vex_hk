@@ -1,24 +1,25 @@
-use chrono::NaiveDate;
-use log::error;
 use std::{
     io::{BufRead, BufReader},
-    iter::once,
     path::Path,
     process::{Command, Stdio},
+};
+
+#[cfg(feature = "nvd")]
+use chrono::NaiveDate;
+#[cfg(feature = "nvd")]
+use log::error;
+#[cfg(feature = "nvd")]
+use std::{
+    iter::once,
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "nvd")]
 use crate::{
     db_api::{
         consts::CVE_TABLE,
         db_connection::get_db,
         query_db::{count_table_entries, verify_database},
-    },
-    scrape_mod::{
-        alienvault_scraper::alienvault_scraper,
-        exploitdb_scraper::exploitdb_scrape,
-        nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd},
-        osv_scraper::{scrape_osv, scrape_osv_update},
     },
     utils::{
         config::store_key,
@@ -26,14 +27,26 @@ use crate::{
     },
 };
 
-//Verifies every hour
+#[cfg(feature = "alienvault")]
+use crate::scrape_mod::alienvault_scraper::alienvault_scraper;
+#[cfg(feature = "exploitdb")]
+use crate::scrape_mod::exploitdb_scraper::exploitdb_scrape;
+#[cfg(feature = "nvd")]
+use crate::scrape_mod::nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd};
+#[cfg(feature = "osv")]
+use crate::scrape_mod::osv_scraper::{scrape_osv, scrape_osv_update};
+
+// Verifies every hour
+#[cfg(feature = "nvd")]
 const TIME_INTERVAL: u64 = 3600;
+#[cfg(feature = "nvd")]
 const EMPTY: i64 = 0;
 
 mod db_api;
 mod scrape_mod;
 mod utils;
 
+#[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
     if let Err(e) = consts_checker() {
         eprintln!("Error: {}", e);
@@ -91,6 +104,7 @@ pub async fn _exploit_vulnerability_hunter() {
 
 /// Retrieves the exploits from NVD database (timestamp required for new additions and updates)
 /// Designed for performance, update removes the entry and adds the latest one
+#[cfg(feature = "nvd")]
 async fn nvd_scraper(timestamp: String) {
     let db_cve_total = count_table_entries(CVE_TABLE).await;
 
@@ -130,6 +144,7 @@ async fn nvd_scraper(timestamp: String) {
     }
 }
 
+#[cfg(feature = "exploitdb")]
 pub async fn _exploitdb_scraper() {
     match exploitdb_scrape().await {
         Ok(_) => {
@@ -141,11 +156,14 @@ pub async fn _exploitdb_scraper() {
     };
 }
 
+#[cfg(feature = "osv")]
 pub async fn osv_scraper() {
-    scrape_osv().await;
-    scrape_osv_update().await;
+    // todo: unhandled errors
+    scrape_osv().await.unwrap();
+    scrape_osv_update().await.unwrap();
 }
 
+#[cfg(feature = "alienvault")]
 pub async fn _alienvault_otx_scraper() {
     match alienvault_scraper().await {
         Ok(_) => {
@@ -197,6 +215,7 @@ fn _parse_bool(bool_string: &String) -> bool {
     false
 }
 
+#[cfg(feature = "nvd")]
 pub async fn year_nvd(year: &str, end_year: &str) {
     let instant = Instant::now();
     let start_year = parse_year(year);
@@ -239,6 +258,7 @@ pub async fn year_nvd(year: &str, end_year: &str) {
     println!("manual exec {:.2?}", instant.elapsed());
 }
 
+#[cfg(feature = "nvd")]
 fn parse_year(year: &str) -> i32 {
     year.parse::<i32>().unwrap_or_else(|_| {
         error!("Failed to parse year: '{}'", year);
