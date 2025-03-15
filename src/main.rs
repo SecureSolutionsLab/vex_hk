@@ -4,8 +4,13 @@ use vex_hk::osv_scraper;
 
 #[tokio::main]
 async fn main() {
-    std::env::set_var("RUST_LOG", "info");
-    env_logger::init(); // Initialize the logger
+    // initialize env_logger with log level Info as default
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
+
+    // todo: is this necessary?
     info!("This is an info log.");
     warn!("This is a warning.");
     error!("This is an error.");

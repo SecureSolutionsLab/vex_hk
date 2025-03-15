@@ -208,6 +208,7 @@ pub fn exec_stream<P: AsRef<Path>>(binary: P, args: Vec<String>) {
     cmd.wait().unwrap();
 }
 
+// todo: ?
 fn _parse_bool(bool_string: &String) -> bool {
     if bool_string == "True" {
         return true;
