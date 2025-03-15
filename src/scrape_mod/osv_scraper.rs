@@ -1,4 +1,5 @@
 use chrono::{DateTime, FixedOffset, Utc};
+use futures_util::StreamExt;
 use log::{error, info};
 use quick_xml::{events::Event, Reader};
 use reqwest::Client;
@@ -15,7 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
-use tokio::{sync::Mutex, time::sleep};
+use tokio::{io::AsyncWriteExt, sync::Mutex, time::sleep};
 use zip::ZipArchive;
 
 use crate::{
@@ -94,23 +95,21 @@ pub enum ParseError {
 /// - `tokio` for asynchronous runtime and synchronization primitives.
 /// - `sqlx` (assumed) for database operations.
 /// - `log` for logging.
-pub async fn scrape_osv() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn scrape_osv(
+    pg_bars: indicatif::MultiProgress,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // probably should be passed as a argument
+    let client = reqwest::Client::new();
+
     // Start the overall timer.
     let start = Instant::now();
-    let file_path = "all.zip";
+
+    // todo: probably should be with the other constants
+    let file_path = "./temp/all.zip";
     let url = "https://storage.googleapis.com/osv-vulnerabilities/all.zip";
 
-    // Download the ZIP archive.
-    info!("Downloading file from {}...", url);
-    let response = reqwest::get(url).await?;
-    let bytes = response.bytes().await?;
-    info!("Download complete.");
+    download_and_save_to_file(client, url, file_path, pg_bars).await?;
 
-    // Save the downloaded bytes to a local file.
-    {
-        let mut file = File::create(file_path)?;
-        file.write_all(&bytes)?;
-    }
     info!("File saved locally as: {}", file_path);
     info!("Download time: {:?}", start.elapsed());
 
@@ -238,6 +237,53 @@ pub async fn scrape_osv() -> Result<(), Box<dyn std::error::Error>> {
 
     // Remove the local ZIP file.
     fs::remove_file(file_path)?;
+    Ok(())
+}
+
+/// Download and stream to a file without storing the contents in memory (best for very big files).
+///
+/// Uses a tokio BufWriter in order to not perform much spawn_blocking.
+// probably should be generalized for other modules
+// todo: better handle errors
+async fn download_and_save_to_file(
+    client: reqwest::Client,
+    url: &str,
+    path: &str,
+    pg_bars: indicatif::MultiProgress,
+) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("Creating download file at {}", path);
+    let mut file = tokio::io::BufWriter::new(tokio::fs::File::create(path).await?);
+
+    log::info!("Performing request to {}...", url);
+    let response = client.get(url).send().await?;
+    if let Some(content_len) = response.content_length() {
+        log::info!(
+            "Request successful. Starting download. ({})",
+            human_bytes::human_bytes(content_len as f64)
+        );
+        let bar = pg_bars.add(indicatif::ProgressBar::new(content_len));
+
+        let mut stream = response.bytes_stream();
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result?;
+            file.write_all(&chunk).await?;
+            bar.inc(chunk.len() as u64);
+        }
+
+        bar.finish();
+        pg_bars.remove(&bar);
+    } else {
+        log::warn!("Request successful, however content length could not be retrieved.");
+        let mut stream = response.bytes_stream();
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result?;
+            file.write_all(&chunk).await?;
+        }
+    }
+
+    file.flush().await?;
+
+    info!("Download complete.");
     Ok(())
 }
 

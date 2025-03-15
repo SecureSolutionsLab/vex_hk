@@ -86,10 +86,10 @@ fn _parse_env_line(line: &str) -> Option<(String, String)> {
 /// ```
 pub fn _write_env(key: &str, value: &str) {
     let env_file_path = ".env";
-    if !_file_exists(&env_file_path) {
-        _create_env_file(&env_file_path);
+    if !_file_exists(env_file_path) {
+        _create_env_file(env_file_path);
     }
-    let file = File::open(&env_file_path).unwrap();
+    let file = File::open(env_file_path).unwrap();
     let reader = BufReader::new(file);
 
     let mut env_vars: HashMap<String, String> = HashMap::new();
@@ -104,7 +104,7 @@ pub fn _write_env(key: &str, value: &str) {
     let mut file = OpenOptions::new()
         .write(true)
         .truncate(true)
-        .open(&env_file_path)
+        .open(env_file_path)
         .unwrap();
 
     for (key, value) in env_vars.iter() {

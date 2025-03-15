@@ -63,5 +63,5 @@ pub fn get_db() -> String {
 /// - `sqlx` for managing database connections and connection pools.
 /// - [`get_db`] for retrieving the database connection string.
 pub async fn get_db_connection() -> Result<Pool<Postgres>, sqlx::Error> {
-    PgPoolOptions::new().connect(&*get_db()).await
+    PgPoolOptions::new().connect(&get_db()).await
 }

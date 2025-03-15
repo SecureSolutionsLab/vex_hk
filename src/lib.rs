@@ -157,9 +157,9 @@ pub async fn _exploitdb_scraper() {
 }
 
 #[cfg(feature = "osv")]
-pub async fn osv_scraper() {
+pub async fn osv_scraper(pg_bars: indicatif::MultiProgress) {
     // todo: unhandled errors
-    scrape_osv().await.unwrap();
+    scrape_osv(pg_bars).await.unwrap();
     scrape_osv_update().await.unwrap();
 }
 
@@ -176,6 +176,7 @@ pub async fn _alienvault_otx_scraper() {
 }
 
 pub fn exec_stream<P: AsRef<Path>>(binary: P, args: Vec<String>) {
+    // todo: probably must be waited
     let mut cmd = Command::new(binary.as_ref())
         .args(&args)
         .stdout(Stdio::piped())

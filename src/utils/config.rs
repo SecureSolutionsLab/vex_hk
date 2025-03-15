@@ -64,9 +64,8 @@ pub fn read_key(key: String) -> Option<String> {
         },
         _ => serde_json::from_str(&contents).expect("Failed to parse JSON"),
     };
-    let value = config.map.get(&key);
-    if value.is_some() {
-        return Some(value.unwrap().to_owned());
+    if let Some(value) = config.map.get(&key) {
+        return Some(value.to_owned());
     }
     println!("value does not exist");
     None
@@ -101,6 +100,7 @@ pub fn read_key(key: String) -> Option<String> {
 pub fn store_key(key: String, value: String) {
     // Read the existing config file or create a new one if it doesn't exist
     println!("store key: {}", FILE_PATH);
+    // todo: check clippy (clippy::suspicious_open_options)
     let mut file = OpenOptions::new()
         .write(true)
         .read(true)
