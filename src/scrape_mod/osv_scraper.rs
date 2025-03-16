@@ -9,9 +9,8 @@ use std::{
     cmp::min,
     collections::HashMap,
     error::Error,
-    fs,
-    fs::File,
-    io::{Read, Write},
+    fs::{self, File},
+    io::Read,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -21,6 +20,7 @@ use zip::ZipArchive;
 
 use crate::{
     db_api::{
+        self,
         consts::{ID, OSV_COLUMN, OSV_TABLE},
         db_connection::get_db_connection,
         delete::remove_entries_id,
@@ -95,6 +95,7 @@ pub enum ParseError {
 /// - `tokio` for asynchronous runtime and synchronization primitives.
 /// - `sqlx` (assumed) for database operations.
 /// - `log` for logging.
+// todo: this function needs separation / testing
 pub async fn scrape_osv(
     pg_bars: indicatif::MultiProgress,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -128,7 +129,8 @@ pub async fn scrape_osv(
     info!("Total number of files in archive: {}", total_files);
 
     // Calculate the batch size for each task (ceiling division).
-    let batch_size = (total_files + TOTAL_THREADS as usize - 1) / TOTAL_THREADS as usize;
+    let batch_size = total_files.div_ceil(TOTAL_THREADS as usize);
+
     // Number of OSV records to accumulate before insertion.
 
     // Create a vector to hold our asynchronous tasks.
@@ -140,6 +142,11 @@ pub async fn scrape_osv(
         let start_index = task_id * batch_size;
         let end_index = min(start_index + batch_size, total_files);
 
+        // tasks seem to be memory and database bound, using more threads just causes more memory stalling
+        // program still uses almost 4gb of memory at peak
+        // todo: try storing only strings
+        // todo: create other sequential function for comparison
+        // todo: tokio config?
         let task = tokio::spawn(async move {
             info!(
                 "Task {} processing files {} to {}",
@@ -149,6 +156,8 @@ pub async fn scrape_osv(
             );
 
             // Get a database connection for this task.
+            // todo: this is using a separate pool for each thread each with its separate number
+            //      of max connections
             let db_conn = match get_db_connection().await {
                 Ok(conn) => conn,
                 Err(e) => {
@@ -157,7 +166,13 @@ pub async fn scrape_osv(
                 }
             };
 
-            let mut batch_results = Vec::with_capacity(OSV_BATCH_SIZE);
+            // todo: each value has potentially lots of suballocations
+            // it would be better if everything would be stored continuously, however that is not
+            // currently accepted by insert_parallel
+            // sqlx .bind shouldn't really care if the value is a serde_json object or just a string,
+            // however there is a possibility this causing errors in subsequent deserializations
+            let mut batch_results: Vec<serde_json::Value> = Vec::with_capacity(OSV_BATCH_SIZE);
+            let mut json_content = String::new();
 
             for i in start_index..end_index {
                 // Acquire the lock only while reading a single file.
@@ -174,30 +189,42 @@ pub async fn scrape_osv(
                         }
                     };
 
-                    let file_name = file.name().to_string();
                     // Process only JSON files.
-                    if file_name.ends_with(".json") {
-                        let mut json_content = String::new();
-                        if let Err(err) = file.read_to_string(&mut json_content) {
-                            error!(
+                    if file.name().ends_with(".json") {
+                        // faster than using serde_json::from_reader and BufReader
+                        match file.read_to_string(&mut json_content) {
+                            Ok(_read_bytes) => {
+                                match serde_json::from_str::<OSV>(&json_content) {
+                                    Ok(osv_record) => {
+                                        batch_results.push(serde_json::json!(osv_record));
+                                    }
+                                    Err(_err) => error!(
+                                        "Task {}: Error parsing JSON from file {}",
+                                        task_id,
+                                        file.name()
+                                    ),
+                                }
+                                json_content.clear();
+                            }
+                            Err(err) => error!(
                                 "Task {}: Error reading file {}: {:?}",
-                                task_id, file_name, err
-                            );
-                        } else if let Ok(osv_record) = serde_json::from_str::<OSV>(&json_content) {
-                            batch_results.push(osv_record);
-                        } else {
-                            error!(
-                                "Task {}: Error parsing JSON from file {}",
-                                task_id, file_name
-                            );
+                                task_id,
+                                file.name(),
+                                err
+                            ),
                         }
                     }
                 } // Release the lock immediately.
 
                 // Insert a batch if the chunk size is reached.
                 if batch_results.len() >= OSV_BATCH_SIZE {
-                    if let Err(err) =
-                        insert_parallel(&db_conn, OSV_TABLE, OSV_COLUMN, &batch_results).await
+                    if let Err(err) = db_api::insert::insert_parallel_json(
+                        &db_conn,
+                        OSV_TABLE,
+                        OSV_COLUMN,
+                        &batch_results,
+                    )
+                    .await
                     {
                         error!("Task {}: Error inserting batch: {:?}", task_id, err);
                     }
@@ -207,8 +234,13 @@ pub async fn scrape_osv(
 
             // Insert any remaining records.
             if !batch_results.is_empty() {
-                if let Err(err) =
-                    insert_parallel(&db_conn, OSV_TABLE, OSV_COLUMN, &batch_results).await
+                if let Err(err) = db_api::insert::insert_parallel_json(
+                    &db_conn,
+                    OSV_TABLE,
+                    OSV_COLUMN,
+                    &batch_results,
+                )
+                .await
                 {
                     error!("Task {}: Error inserting final batch: {:?}", task_id, err);
                 }

@@ -55,7 +55,7 @@ pub async fn _insert_db_sequential<T: serde::Serialize>(
     );
     for value in &cve {
         let json_cve = json!(value);
-        let _ = match query(&*sql_query).bind(&json_cve).execute(&db).await {
+        let _ = match query(&sql_query).bind(&json_cve).execute(&db).await {
             Ok(result) => {
                 info!("Inserted CVE {:?}", result)
             }
@@ -110,17 +110,30 @@ pub async fn insert_parallel<T: serde::Serialize>(
     db_conn: &PgPool,
     table: &str,
     column: &str,
-    data: &Vec<T>,
+    data: &[T],
 ) -> Result<(), Error> {
     let sql_query = format!(
         "INSERT INTO {}({}) SELECT UNNEST($1::jsonb[])",
         table, column
     );
-    let mut submit_data = vec![];
-    for cve in data {
-        submit_data.push(json!(cve))
-    }
+    let submit_data: Vec<_> = data.iter().map(|cve| json!(cve)).collect();
     execute_query_data(db_conn, &sql_query, &submit_data).await?;
+    Ok(())
+}
+
+// same as insert_parallel but data is already json
+// todo: experimental
+pub async fn insert_parallel_json(
+    db_conn: &PgPool,
+    table: &str,
+    column: &str,
+    data: &[serde_json::Value],
+) -> Result<(), Error> {
+    let sql_query = format!(
+        "INSERT INTO {}({}) SELECT UNNEST($1::jsonb[])",
+        table, column
+    );
+    execute_query_data(db_conn, &sql_query, data).await?;
     Ok(())
 }
 
