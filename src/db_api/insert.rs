@@ -137,6 +137,23 @@ pub async fn insert_parallel_json(
     Ok(())
 }
 
+// same as above but insert json data already converted into strings
+// database should send back an error if json is badly converted
+// todo: experimental
+pub async fn insert_parallel_string_json(
+    db_conn: &PgPool,
+    table: &str,
+    column: &str,
+    data: &[String],
+) -> Result<(), Error> {
+    let sql_query = format!(
+        "INSERT INTO {}({}) SELECT UNNEST($1::jsonb[])",
+        table, column
+    );
+    execute_query_data(db_conn, &sql_query, data).await?;
+    Ok(())
+}
+
 /// Inserts CVE data and associated configurations into the database.
 ///
 /// This function performs batch insertions for CVEs and their associated configurations.

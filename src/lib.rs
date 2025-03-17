@@ -159,7 +159,20 @@ pub async fn _exploitdb_scraper() {
 #[cfg(feature = "osv")]
 pub async fn osv_scraper(pg_bars: indicatif::MultiProgress) {
     // todo: unhandled errors
-    scrape_osv(pg_bars).await.unwrap();
+
+    use sqlx::Executor;
+
+    // delete all stuff first
+    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+    db_conn
+        .execute(sqlx::query("DELETE FROM osv"))
+        .await
+        .unwrap();
+
+    // scrape_osv(pg_bars).await.unwrap();
+    scrape_mod::osv_scraper::scrape_osv_send_to_database_sequential(pg_bars)
+        .await
+        .unwrap();
     scrape_osv_update().await.unwrap();
 }
 

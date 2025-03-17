@@ -272,6 +272,89 @@ pub async fn scrape_osv(
     Ok(())
 }
 
+pub async fn scrape_osv_send_to_database_sequential(
+    pg_bars: indicatif::MultiProgress,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Start processing timer.
+    let processing_start = Instant::now();
+
+    let file_path = "./temp/all.zip";
+
+    let file = File::open(file_path)?;
+    let mut archive = ZipArchive::new(file)?;
+
+    info!("Sending {} files to the database", archive.len());
+
+    // Get a database connection for this task.
+    // todo: probably pass as an argument
+    let db_conn = get_db_connection().await?;
+
+    let bar = pg_bars.add(indicatif::ProgressBar::new(archive.len() as u64));
+
+    // this could be one single allocation but it probably won't be possible to send it at in one
+    // batch to the database
+    let mut batch_results: Vec<String> = std::iter::repeat(String::new())
+        .take(OSV_BATCH_SIZE)
+        .collect();
+    let mut batch_i = 0;
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+
+        // Process only JSON files.
+        if file.name().ends_with(".json") {
+            batch_results[batch_i].clear();
+            // faster than using serde_json::from_reader and BufReader
+            file.read_to_string(&mut batch_results[batch_i])?;
+            let osv_record = serde_json::from_str::<OSV>(&batch_results[batch_i])?;
+
+            // todo: see if it is possible to just use original file contents
+            // if not, convert osv_record to string directly
+            batch_results[batch_i].clear();
+            batch_results[batch_i].insert_str(0, &serde_json::json!(osv_record).to_string());
+
+            batch_i += 1;
+            // Insert a batch if the chunk size is reached.
+            if batch_i >= OSV_BATCH_SIZE {
+                batch_i = 0;
+                db_api::insert::insert_parallel_string_json(
+                    &db_conn,
+                    OSV_TABLE,
+                    OSV_COLUMN,
+                    &batch_results,
+                )
+                .await?;
+                bar.set_position((i + 1) as u64);
+            }
+        }
+    }
+
+    // Insert any remaining records.
+    if batch_i > 0 {
+        db_api::insert::insert_parallel_string_json(
+            &db_conn,
+            OSV_TABLE,
+            OSV_COLUMN,
+            &batch_results[0..batch_i],
+        )
+        .await?
+    }
+
+    bar.finish();
+    pg_bars.remove(&bar);
+    info!("Finished. Total processing time: {:?}", processing_start.elapsed());
+
+    // Update the OSV timestamp to today's date at midnight (UTC) in RFC3339 format.
+    let today = Utc::now().date_naive();
+    let midnight = today
+        .and_hms_opt(0, 0, 0)
+        .ok_or("Failed to construct midnight timestamp")?;
+    let rfc3339_midnight = midnight.and_utc().to_rfc3339();
+    store_key(OSV_TIMESTAMP.to_string(), rfc3339_midnight);
+
+    Ok(())
+}
+
 /// Download and stream to a file without storing the contents in memory (best for very big files).
 ///
 /// Uses a tokio BufWriter in order to not perform much spawn_blocking.
