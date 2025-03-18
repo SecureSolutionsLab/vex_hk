@@ -96,12 +96,36 @@ pub enum ParseError {
 /// - `sqlx` (assumed) for database operations.
 /// - `log` for logging.
 // todo: this function needs separation / testing
-pub async fn scrape_osv(
-    pg_bars: indicatif::MultiProgress,
+pub async fn scrape_osv_concurrent(
+    client: reqwest::Client,
+    pg_bars: &indicatif::MultiProgress,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // probably should be passed as a argument
-    let client = reqwest::Client::new();
+    // Start the overall timer.
+    let start = Instant::now();
 
+    // todo: probably should be with the other constants
+    let file_path = "./temp/all.zip";
+    let url = "https://storage.googleapis.com/osv-vulnerabilities/all.zip";
+
+    download_and_save_to_file(client, url, file_path, &pg_bars).await?;
+    read_file_and_send_to_database_concurrent(file_path).await?;
+    update_osv_timestamp()?;
+
+    info!(
+        "Finished first OSV scraping step. Total time: {:?}",
+        start.elapsed()
+    );
+
+    // Remove the local ZIP file.
+    fs::remove_file(file_path)?;
+    Ok(())
+}
+
+pub async fn scrape_osv_sequential(
+    client: reqwest::Client,
+    db_connection: sqlx::Pool<sqlx::Postgres>,
+    pg_bars: &indicatif::MultiProgress,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Start the overall timer.
     let start = Instant::now();
 
@@ -110,28 +134,39 @@ pub async fn scrape_osv(
     let url = "https://storage.googleapis.com/osv-vulnerabilities/all.zip";
 
     download_and_save_to_file(client, url, file_path, pg_bars).await?;
+    read_file_and_send_to_database_sequential(file_path, db_connection, pg_bars).await?;
+    update_osv_timestamp()?;
 
-    info!("File saved locally as: {}", file_path);
-    info!("Download time: {:?}", start.elapsed());
+    info!(
+        "Finished first OSV scraping step. Total time: {:?}",
+        start.elapsed()
+    );
 
+    // Remove the local ZIP file.
+    fs::remove_file(file_path)?;
+    Ok(())
+}
+
+pub async fn read_file_and_send_to_database_concurrent<P>(
+    file_path: P,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    P: AsRef<std::path::Path>,
+{
     // Start processing timer.
     let processing_start = Instant::now();
 
     // Open the ZIP archive and wrap it in an Arc+Mutex for concurrent access.
     let file = File::open(file_path)?;
-    let archive = Arc::new(Mutex::new(ZipArchive::new(file)?));
+    let archive = ZipArchive::new(file)?;
 
-    // Get the total number of files in the archive.
-    let total_files = {
-        let archive = archive.lock().await;
-        archive.len()
-    };
+    let total_files = archive.len();
     info!("Total number of files in archive: {}", total_files);
+
+    let archive = Arc::new(Mutex::new(archive));
 
     // Calculate the batch size for each task (ceiling division).
     let batch_size = total_files.div_ceil(TOTAL_THREADS as usize);
-
-    // Number of OSV records to accumulate before insertion.
 
     // Create a vector to hold our asynchronous tasks.
     let mut tasks = Vec::with_capacity(TOTAL_THREADS as usize);
@@ -144,8 +179,6 @@ pub async fn scrape_osv(
 
         // tasks seem to be memory and database bound, using more threads just causes more memory stalling
         // program still uses almost 4gb of memory at peak
-        // todo: try storing only strings
-        // todo: create other sequential function for comparison
         // todo: tokio config?
         let task = tokio::spawn(async move {
             info!(
@@ -259,35 +292,26 @@ pub async fn scrape_osv(
 
     info!("Total processing time: {:?}", processing_start.elapsed());
 
-    // Update the OSV timestamp to today's date at midnight (UTC) in RFC3339 format.
-    let today = Utc::now().date_naive();
-    let midnight = today
-        .and_hms_opt(0, 0, 0)
-        .ok_or("Failed to construct midnight timestamp")?;
-    let rfc3339_midnight = midnight.and_utc().to_rfc3339();
-    store_key(OSV_TIMESTAMP.to_string(), rfc3339_midnight);
+    update_osv_timestamp()?;
 
-    // Remove the local ZIP file.
-    fs::remove_file(file_path)?;
     Ok(())
 }
 
-pub async fn scrape_osv_send_to_database_sequential(
-    pg_bars: indicatif::MultiProgress,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn read_file_and_send_to_database_sequential<P>(
+    file_path: P,
+    db_connection: sqlx::Pool<sqlx::Postgres>,
+    pg_bars: &indicatif::MultiProgress,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    P: AsRef<std::path::Path>,
+{
     // Start processing timer.
     let processing_start = Instant::now();
-
-    let file_path = "./temp/all.zip";
 
     let file = File::open(file_path)?;
     let mut archive = ZipArchive::new(file)?;
 
     info!("Sending {} files to the database", archive.len());
-
-    // Get a database connection for this task.
-    // todo: probably pass as an argument
-    let db_conn = get_db_connection().await?;
 
     let bar = pg_bars.add(indicatif::ProgressBar::new(archive.len() as u64));
 
@@ -311,14 +335,14 @@ pub async fn scrape_osv_send_to_database_sequential(
             // todo: see if it is possible to just use original file contents
             // if not, convert osv_record to string directly
             batch_results[batch_i].clear();
-            batch_results[batch_i].insert_str(0, &serde_json::json!(osv_record).to_string());
+            batch_results[batch_i].push_str(&serde_json::json!(osv_record).to_string());
 
             batch_i += 1;
             // Insert a batch if the chunk size is reached.
             if batch_i >= OSV_BATCH_SIZE {
                 batch_i = 0;
                 db_api::insert::insert_parallel_string_json(
-                    &db_conn,
+                    &db_connection,
                     OSV_TABLE,
                     OSV_COLUMN,
                     &batch_results,
@@ -332,7 +356,7 @@ pub async fn scrape_osv_send_to_database_sequential(
     // Insert any remaining records.
     if batch_i > 0 {
         db_api::insert::insert_parallel_string_json(
-            &db_conn,
+            &db_connection,
             OSV_TABLE,
             OSV_COLUMN,
             &batch_results[0..batch_i],
@@ -342,15 +366,10 @@ pub async fn scrape_osv_send_to_database_sequential(
 
     bar.finish();
     pg_bars.remove(&bar);
-    info!("Finished. Total processing time: {:?}", processing_start.elapsed());
-
-    // Update the OSV timestamp to today's date at midnight (UTC) in RFC3339 format.
-    let today = Utc::now().date_naive();
-    let midnight = today
-        .and_hms_opt(0, 0, 0)
-        .ok_or("Failed to construct midnight timestamp")?;
-    let rfc3339_midnight = midnight.and_utc().to_rfc3339();
-    store_key(OSV_TIMESTAMP.to_string(), rfc3339_midnight);
+    info!(
+        "Finished. Total processing time: {:?}",
+        processing_start.elapsed()
+    );
 
     Ok(())
 }
@@ -363,11 +382,12 @@ pub async fn scrape_osv_send_to_database_sequential(
 async fn download_and_save_to_file(
     client: reqwest::Client,
     url: &str,
-    path: &str,
-    pg_bars: indicatif::MultiProgress,
+    file_path: &str,
+    pg_bars: &indicatif::MultiProgress,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Creating download file at {}", path);
-    let mut file = tokio::io::BufWriter::new(tokio::fs::File::create(path).await?);
+    let start_instant = Instant::now();
+    log::info!("Creating download file at {}", file_path);
+    let mut file = tokio::io::BufWriter::new(tokio::fs::File::create(file_path).await?);
 
     log::info!("Performing request to {}...", url);
     let response = client.get(url).send().await?;
@@ -398,7 +418,22 @@ async fn download_and_save_to_file(
 
     file.flush().await?;
 
-    info!("Download complete.");
+    info!(
+        "Download complete. Time: {:?}\nFile saved locally at {}",
+        start_instant.elapsed(),
+        file_path
+    );
+    Ok(())
+}
+
+pub fn update_osv_timestamp() -> Result<(), String> {
+    // Update the OSV timestamp to today's date at midnight (UTC) in RFC3339 format.
+    let today = Utc::now().date_naive();
+    let midnight = today
+        .and_hms_opt(0, 0, 0)
+        .ok_or("Failed to construct midnight timestamp")?;
+    let rfc3339_midnight = midnight.and_utc().to_rfc3339();
+    store_key(OSV_TIMESTAMP.to_string(), rfc3339_midnight);
     Ok(())
 }
 

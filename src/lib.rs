@@ -33,8 +33,6 @@ use crate::scrape_mod::alienvault_scraper::alienvault_scraper;
 use crate::scrape_mod::exploitdb_scraper::exploitdb_scrape;
 #[cfg(feature = "nvd")]
 use crate::scrape_mod::nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd};
-#[cfg(feature = "osv")]
-use crate::scrape_mod::osv_scraper::{scrape_osv, scrape_osv_update};
 
 // Verifies every hour
 #[cfg(feature = "nvd")]
@@ -157,7 +155,19 @@ pub async fn _exploitdb_scraper() {
 }
 
 #[cfg(feature = "osv")]
-pub async fn osv_scraper(pg_bars: indicatif::MultiProgress) {
+pub async fn delete_osv_table() {
+    use db_api::consts::OSV_TABLE;
+    use sqlx::Executor;
+
+    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+    db_conn
+        .execute(sqlx::query(&format!("DELETE FROM {}", OSV_TABLE)))
+        .await
+        .unwrap();
+}
+
+#[cfg(feature = "osv")]
+pub async fn osv_scraper_sequential(pg_bars: indicatif::MultiProgress) {
     // todo: unhandled errors
 
     use sqlx::Executor;
@@ -169,11 +179,33 @@ pub async fn osv_scraper(pg_bars: indicatif::MultiProgress) {
         .await
         .unwrap();
 
-    // scrape_osv(pg_bars).await.unwrap();
-    scrape_mod::osv_scraper::scrape_osv_send_to_database_sequential(pg_bars)
+    let client = reqwest::Client::new();
+
+    scrape_mod::osv_scraper::scrape_osv_sequential(client, db_conn, &pg_bars)
         .await
         .unwrap();
-    scrape_osv_update().await.unwrap();
+    scrape_mod::osv_scraper::scrape_osv_update().await.unwrap();
+}
+
+#[cfg(feature = "osv")]
+pub async fn osv_scraper_concurrent(pg_bars: indicatif::MultiProgress) {
+    // todo: unhandled errors
+
+    use sqlx::Executor;
+
+    // delete all stuff first
+    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+    db_conn
+        .execute(sqlx::query("DELETE FROM osv"))
+        .await
+        .unwrap();
+
+    let client = reqwest::Client::new();
+
+    scrape_mod::osv_scraper::scrape_osv_concurrent(client, &pg_bars)
+        .await
+        .unwrap();
+    scrape_mod::osv_scraper::scrape_osv_update().await.unwrap();
 }
 
 #[cfg(feature = "alienvault")]

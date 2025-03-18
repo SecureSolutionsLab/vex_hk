@@ -1,8 +1,6 @@
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::{error, info, warn};
-#[cfg(feature = "osv")]
-use vex_hk::osv_scraper;
 
 #[tokio::main]
 async fn main() {
@@ -25,5 +23,5 @@ async fn main() {
     // _exploit_vulnerability_hunter().await;
     // _exploitdb_scraper().await;
     #[cfg(feature = "osv")]
-    osv_scraper(pg_bars).await;
+    vex_hk::osv_scraper_sequential(pg_bars).await;
 }
