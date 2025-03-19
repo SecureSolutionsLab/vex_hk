@@ -111,6 +111,7 @@ pub async fn query_nvd_cvecount(query_count: &str) -> Result<u32, Box<dyn std::e
 ///
 /// # Errors
 /// - Logs errors if any threads fail or encounter issues during processing.
+/// ONLY RUNS ONCE TO RETRIEVE THE COMPLETE DATABASE
 pub async fn scrape_nvd(cve_count: u32, query: String, update: bool) {
     // Determine the number of threads to use
     let local_threads = if cve_count / TOTAL_PAGE > 1 || cve_count / MIN_RESULTS_PER_THREAD >= 1 {
