@@ -184,7 +184,6 @@ pub async fn osv_scraper_sequential(pg_bars: indicatif::MultiProgress) {
     scrape_mod::osv_scraper::scrape_osv_sequential(client, db_conn, &pg_bars)
         .await
         .unwrap();
-    scrape_mod::osv_scraper::scrape_osv_update().await.unwrap();
 }
 
 #[cfg(feature = "osv")]
@@ -205,7 +204,6 @@ pub async fn osv_scraper_concurrent(pg_bars: indicatif::MultiProgress) {
     scrape_mod::osv_scraper::scrape_osv_concurrent(client, &pg_bars)
         .await
         .unwrap();
-    scrape_mod::osv_scraper::scrape_osv_update().await.unwrap();
 }
 
 #[cfg(feature = "alienvault")]

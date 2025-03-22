@@ -51,6 +51,8 @@ pub enum ParseError {
     MissingJsonUrl,
 }
 
+const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
+
 /// Downloads the OSV ZIP archive, processes its JSON files concurrently, and inserts the parsed OSV records
 /// into the database in batches. After processing, the OSV timestamp is updated and the local archive file is removed.
 ///
@@ -297,6 +299,9 @@ where
     Ok(())
 }
 
+// todo: probably faster if to use two threads
+// (one for reading other for sending to db)
+// may need testing
 pub async fn read_file_and_send_to_database_sequential<P>(
     file_path: P,
     db_connection: sqlx::Pool<sqlx::Postgres>,
@@ -311,57 +316,53 @@ where
     let file = File::open(file_path)?;
     let mut archive = ZipArchive::new(file)?;
 
-    info!("Sending {} files to the database", archive.len());
+    info!("About to process {} files", archive.len());
 
     let bar = pg_bars.add(indicatif::ProgressBar::new(archive.len() as u64));
 
-    // this could be one single allocation but it probably won't be possible to send it at in one
-    // batch to the database
-    let mut batch_results: Vec<String> = std::iter::repeat(String::new())
-        .take(OSV_BATCH_SIZE)
-        .collect();
-    let mut batch_i = 0;
+    let mut buffer: String = String::with_capacity(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE);
+    let mut buffer_separators: Vec<usize> = Vec::new();
+    for file_i in 0..archive.len() {
+        let mut file = archive.by_index(file_i)?;
 
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)?;
-
-        // Process only JSON files.
+        // skip any non .json files
         if file.name().ends_with(".json") {
-            batch_results[batch_i].clear();
-            // faster than using serde_json::from_reader and BufReader
-            file.read_to_string(&mut batch_results[batch_i])?;
-            let osv_record = serde_json::from_str::<OSV>(&batch_results[batch_i])?;
+            let file_size = file.size() as usize;
+
+            if file_size > FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE {
+                // buffer gets resized later automatically
+                log::warn!(
+                    "File \"{}\" with size {} is bigger than available buffer size ({})",
+                    file.name(),
+                    human_bytes::human_bytes(file.size() as f64),
+                    human_bytes::human_bytes(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE as f64)
+                );
+            }
+
+            // send any existing files if they cross the threshold
+            if buffer.len() + file_size > FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE {
+                send_batch(&db_connection, &mut buffer, &mut buffer_separators).await?;
+                bar.set_position((file_i + 1) as u64);
+            }
+
+            let old_byte_i = buffer.len();
+            let osv_record = {
+                // faster than using serde_json::from_reader and BufReader
+                file.read_to_string(&mut buffer)?;
+                let current = buffer.get(old_byte_i..).unwrap();
+                serde_json::from_str::<OSV>(current)?
+            };
 
             // todo: see if it is possible to just use original file contents
             // if not, convert osv_record to string directly
-            batch_results[batch_i].clear();
-            batch_results[batch_i].push_str(&serde_json::json!(osv_record).to_string());
-
-            batch_i += 1;
-            // Insert a batch if the chunk size is reached.
-            if batch_i >= OSV_BATCH_SIZE {
-                batch_i = 0;
-                db_api::insert::insert_parallel_string_json(
-                    &db_connection,
-                    OSV_TABLE,
-                    OSV_COLUMN,
-                    &batch_results,
-                )
-                .await?;
-                bar.set_position((i + 1) as u64);
-            }
+            buffer.replace_range(old_byte_i.., &serde_json::json!(osv_record).to_string());
+            buffer_separators.push(buffer.len());
         }
     }
 
-    // Insert any remaining records.
-    if batch_i > 0 {
-        db_api::insert::insert_parallel_string_json(
-            &db_connection,
-            OSV_TABLE,
-            OSV_COLUMN,
-            &batch_results[0..batch_i],
-        )
-        .await?
+    // send any remaining
+    if buffer_separators.len() != 0 {
+        send_batch(&db_connection, &mut buffer, &mut buffer_separators).await?;
     }
 
     bar.finish();
@@ -371,6 +372,36 @@ where
         processing_start.elapsed()
     );
 
+    Ok(())
+}
+
+async fn send_batch<'a>(
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    buffer: &'a mut String,
+    separators: &mut Vec<usize>, // offsets between files in the buffer
+) -> Result<(), sqlx::Error> {
+    assert!(separators.len() > 0);
+    assert_eq!(separators[separators.len() - 1], buffer.len());
+
+    let mut start = 0;
+    let batch: Vec<&str> = separators
+        .iter()
+        .map(|&sep| {
+            let item = buffer.get(start..sep).unwrap();
+            start = sep;
+            item
+        })
+        .collect();
+    log::info!(
+        "Sending {} files, {}",
+        batch.len(),
+        human_bytes::human_bytes(separators[separators.len() - 1] as f64)
+    );
+    db_api::insert::insert_parallel_string_json(&db_connection, OSV_TABLE, OSV_COLUMN, &batch)
+        .await?;
+
+    buffer.clear();
+    separators.clear();
     Ok(())
 }
 

@@ -144,7 +144,7 @@ pub async fn insert_parallel_string_json(
     db_conn: &PgPool,
     table: &str,
     column: &str,
-    data: &[String],
+    data: &[&str],
 ) -> Result<(), Error> {
     let sql_query = format!(
         "INSERT INTO {}({}) SELECT UNNEST($1::jsonb[])",
