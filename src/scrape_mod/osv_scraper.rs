@@ -97,6 +97,8 @@ const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 /// - `tokio` for asynchronous runtime and synchronization primitives.
 /// - `sqlx` (assumed) for database operations.
 /// - `log` for logging.
+///
+/// ONLY RUNS ONCE TO RETRIEVE THE COMPLETE DATABASE
 // todo: this function needs separation / testing
 pub async fn scrape_osv_concurrent(
     client: reqwest::Client,
