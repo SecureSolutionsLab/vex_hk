@@ -155,24 +155,11 @@ pub async fn _exploitdb_scraper() {
 }
 
 #[cfg(feature = "osv")]
-pub async fn delete_osv_table() {
-    use db_api::consts::OSV_TABLE;
-    use sqlx::Executor;
-
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
-    db_conn
-        .execute(sqlx::query(&format!("DELETE FROM {}", OSV_TABLE)))
-        .await
-        .unwrap();
-}
-
-#[cfg(feature = "osv")]
-pub async fn osv_scraper_sequential(pg_bars: indicatif::MultiProgress) {
+pub async fn osv_scraper(pg_bars: indicatif::MultiProgress) {
     // todo: unhandled errors
 
     use sqlx::Executor;
 
-    // delete all stuff first
     let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
     db_conn
         .execute(sqlx::query("DELETE FROM osv"))
@@ -181,27 +168,7 @@ pub async fn osv_scraper_sequential(pg_bars: indicatif::MultiProgress) {
 
     let client = reqwest::Client::new();
 
-    scrape_mod::osv_scraper::scrape_osv_sequential(client, db_conn, &pg_bars)
-        .await
-        .unwrap();
-}
-
-#[cfg(feature = "osv")]
-pub async fn osv_scraper_concurrent(pg_bars: indicatif::MultiProgress) {
-    // todo: unhandled errors
-
-    use sqlx::Executor;
-
-    // delete all stuff first
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
-    db_conn
-        .execute(sqlx::query("DELETE FROM osv"))
-        .await
-        .unwrap();
-
-    let client = reqwest::Client::new();
-
-    scrape_mod::osv_scraper::scrape_osv_concurrent(client, &pg_bars)
+    scrape_mod::osv_scraper::scrape_osv_full(client, db_conn, &pg_bars)
         .await
         .unwrap();
 }

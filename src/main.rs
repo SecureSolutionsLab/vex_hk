@@ -1,6 +1,5 @@
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
-use log::{error, info, warn};
 
 #[tokio::main]
 async fn main() {
@@ -16,12 +15,8 @@ async fn main() {
     LogWrapper::new(pg_bars.clone(), logger).try_init().unwrap();
     log::set_max_level(level);
 
-    // todo: is this necessary?
-    info!("This is an info log.");
-    warn!("This is a warning.");
-    error!("This is an error.");
     // _exploit_vulnerability_hunter().await;
     // _exploitdb_scraper().await;
     #[cfg(feature = "osv")]
-    vex_hk::osv_scraper_sequential(pg_bars).await;
+    vex_hk::osv_scraper(pg_bars).await;
 }

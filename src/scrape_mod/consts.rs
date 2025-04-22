@@ -30,14 +30,3 @@ mod nvd {
 }
 #[cfg(feature = "nvd")]
 pub(crate) use nvd::{API_KEY_NVD, MIN_RESULTS_PER_THREAD, SERVICE_SLEEP, TOTAL_PAGE};
-
-#[cfg(feature = "osv")]
-mod osv {
-    pub const OSV_INDEX: &str = "https://osv.dev/sitemap_index.xml";
-
-    pub const OSV_TIMESTAMP: &str = "last_timestamp_osv";
-
-    pub const OSV_BATCH_SIZE: usize = 500;
-}
-#[cfg(feature = "osv")]
-pub(crate) use osv::{OSV_BATCH_SIZE, OSV_INDEX, OSV_TIMESTAMP};
