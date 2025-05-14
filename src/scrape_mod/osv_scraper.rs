@@ -59,8 +59,6 @@ const FULL_DATA_URL: &str = "https://storage.googleapis.com/osv-vulnerabilities/
 
 const TIMESTAMP_FILE_NAME: &str = "last_timestamp_osv";
 
-const OSV_BATCH_SIZE: usize = 500;
-
 const TEMP_FILE_PATH: &str = "./temp/osv_all_temp.zip";
 
 // example id: ALBA-2019:0973
