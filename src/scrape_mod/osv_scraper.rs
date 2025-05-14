@@ -12,6 +12,8 @@ use std::{
     error::Error,
     fs::{self, File},
     io::Read,
+    iter,
+    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -29,6 +31,7 @@ use crate::{
         query_db::find_missing_or_stale_entries_by_id,
         structs::{EntryInput, EntryStatus},
     },
+    download::download_and_save_to_file_in_chunks,
     scrape_mod::structs::{Sitemap, OSV},
     utils::config::{read_key, store_key},
 };
@@ -58,7 +61,12 @@ const TIMESTAMP_FILE_NAME: &str = "last_timestamp_osv";
 
 const OSV_BATCH_SIZE: usize = 500;
 
-const TEMP_FILE_PATH: &str = "./osv_all_temp.zip";
+const TEMP_FILE_PATH: &str = "./temp/osv_all_temp.zip";
+
+// example id: ALBA-2019:0973
+// the specification does not specify a max character limit for the value of an id
+// some of these can get quite big (ex. BIT-grafana-image-renderer-2022-31176)
+const OSV_ID_MAX_CHARACTERS: usize = 48;
 
 /// Downloads whole OSV ZIP archive data and stores all separate records to a database.
 /// A OSV timestamp is then created to aid in future partial updates.
@@ -75,16 +83,25 @@ pub async fn scrape_osv_full(
     info!("Creating a new OSV table with name \"{OSV_TABLE_NAME}\" and data column \"{OSV_DATA_COLUMN_NAME}\"");
 
     db_connection
-    .execute(QueryBuilder::<Postgres>::new(format!(
-        "DROP TABLE IF EXISTS \"{OSV_TABLE_NAME}\";
-         CREATE TABLE \"{OSV_TABLE_NAME}\" (\"id\" INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, \"{OSV_DATA_COLUMN_NAME}\" JSONB NOT NULL);",
-    )).build().sql())
-    .await
-    .unwrap();
+        .execute(
+            QueryBuilder::<Postgres>::new(format!(
+                "
+        DROP TABLE IF EXISTS \"{OSV_TABLE_NAME}\";
+        CREATE TABLE \"{OSV_TABLE_NAME}\" (
+            \"id\" character varying({OSV_ID_MAX_CHARACTERS}) PRIMARY KEY,
+            \"{OSV_DATA_COLUMN_NAME}\" JSONB NOT NULL
+        );",
+            ))
+            .build()
+            .sql(),
+        )
+        .await
+        .unwrap();
 
     info!("Starting full OSV database download.");
 
-    download_and_save_to_file(client, FULL_DATA_URL, TEMP_FILE_PATH, &pg_bars).await?;
+    download_and_save_to_file_in_chunks(client, FULL_DATA_URL, Path::new(TEMP_FILE_PATH), &pg_bars)
+        .await?;
     read_file_and_send_to_database(TEMP_FILE_PATH, db_connection, pg_bars).await?;
     update_osv_timestamp()?;
 
@@ -93,7 +110,7 @@ pub async fn scrape_osv_full(
         start.elapsed()
     );
 
-    fs::remove_file(TEMP_FILE_PATH)?;
+    //fs::remove_file(TEMP_FILE_PATH)?;
     Ok(())
 }
 
@@ -116,8 +133,11 @@ where
 
     let bar = pg_bars.add(indicatif::ProgressBar::new(archive.len() as u64));
 
+    // separators can't be Vec<&str> directly because of mutable borrow rules
     let mut buffer: String = String::with_capacity(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE);
     let mut buffer_separators: Vec<usize> = Vec::new();
+    let mut ids: String = String::new();
+    let mut ids_separators: Vec<usize> = Vec::new();
     for file_i in 0..archive.len() {
         let mut file = archive.by_index(file_i)?;
 
@@ -137,7 +157,18 @@ where
 
             // send any existing files if they cross the threshold
             if buffer.len() + file_size > FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE {
-                send_batch(&db_connection, &mut buffer, &mut buffer_separators).await?;
+                send_batch(
+                    &db_connection,
+                    &buffer,
+                    &buffer_separators,
+                    &ids,
+                    &ids_separators,
+                )
+                .await?;
+                buffer.clear();
+                buffer_separators.clear();
+                ids.clear();
+                ids_separators.clear();
                 bar.set_position((file_i + 1) as u64);
             }
 
@@ -148,17 +179,37 @@ where
                 let current = buffer.get(old_byte_i..).unwrap();
                 serde_json::from_str::<OSV>(current)?
             };
+            let id = &osv_record.id;
+            if id.len() > OSV_ID_MAX_CHARACTERS {
+                if id.chars().count() > OSV_ID_MAX_CHARACTERS {
+                    panic!(
+                        "ID {} has more characters ({}) than the maximum set to the database ({})",
+                        id,
+                        id.chars().count(),
+                        OSV_ID_MAX_CHARACTERS
+                    );
+                }
+            }
 
             // todo: see if it is possible to just use original file contents
             // if not, convert osv_record to string directly
             buffer.replace_range(old_byte_i.., &serde_json::json!(osv_record).to_string());
             buffer_separators.push(buffer.len());
+            ids.push_str(id);
+            ids_separators.push(ids.len());
         }
     }
 
     // send any remaining
     if buffer_separators.len() != 0 {
-        send_batch(&db_connection, &mut buffer, &mut buffer_separators).await?;
+        send_batch(
+            &db_connection,
+            &buffer,
+            &buffer_separators,
+            &ids,
+            &ids_separators,
+        )
+        .await?;
     }
 
     bar.finish();
@@ -173,14 +224,18 @@ where
 
 async fn send_batch<'a>(
     db_connection: &sqlx::Pool<sqlx::Postgres>,
-    buffer: &'a mut String,
-    separators: &mut Vec<usize>, // offsets between files in the buffer
+    buffer: &'a String,
+    buffer_separators: &'a Vec<usize>, // offsets between files in the buffer
+    ids: &'a String,
+    ids_separators: &'a Vec<usize>,
 ) -> Result<(), sqlx::Error> {
-    assert!(separators.len() > 0);
-    assert_eq!(separators[separators.len() - 1], buffer.len());
+    assert!(buffer_separators.len() > 0);
+    assert_eq!(buffer_separators[buffer_separators.len() - 1], buffer.len());
+    assert_eq!(buffer_separators.len(), ids_separators.len());
+    assert_eq!(ids_separators[ids_separators.len() - 1], ids.len());
 
     let mut start = 0;
-    let batch: Vec<&str> = separators
+    let batch: Vec<&str> = buffer_separators
         .iter()
         .map(|&sep| {
             let item = buffer.get(start..sep).unwrap();
@@ -188,74 +243,30 @@ async fn send_batch<'a>(
             item
         })
         .collect();
+    start = 0;
+    let ids_partitioned: Vec<&str> = ids_separators
+        .iter()
+        .map(|&sep| {
+            let item = ids.get(start..sep).unwrap();
+            start = sep;
+            item
+        })
+        .collect();
     log::info!(
         "Sending {} files, {}",
         batch.len(),
-        human_bytes::human_bytes(separators[separators.len() - 1] as f64)
+        human_bytes::human_bytes(buffer_separators[buffer_separators.len() - 1] as f64)
     );
-    db_api::insert::insert_parallel_string_json(
-        &db_connection,
-        OSV_TABLE_NAME,
-        OSV_DATA_COLUMN_NAME,
-        &batch,
-    )
-    .await?;
-
-    buffer.clear();
-    separators.clear();
-    Ok(())
-}
-
-/// Download and stream to a file without storing the contents in memory (best for very big files).
-///
-/// Uses a tokio BufWriter in order to not perform much spawn_blocking.
-// probably should be generalized for other modules
-// todo: better handle errors
-async fn download_and_save_to_file(
-    client: reqwest::Client,
-    url: &str,
-    file_path: &str,
-    pg_bars: &indicatif::MultiProgress,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let start_instant = Instant::now();
-    log::info!("Creating download file at {}", file_path);
-    let mut file = tokio::io::BufWriter::new(tokio::fs::File::create(file_path).await?);
-
-    log::info!("Performing request to {}...", url);
-    let response = client.get(url).send().await?;
-    if let Some(content_len) = response.content_length() {
-        log::info!(
-            "Request successful. Starting download. ({})",
-            human_bytes::human_bytes(content_len as f64)
-        );
-        let bar = pg_bars.add(indicatif::ProgressBar::new(content_len));
-
-        let mut stream = response.bytes_stream();
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result?;
-            file.write_all(&chunk).await?;
-
-            bar.inc(chunk.len() as u64);
-        }
-
-        bar.finish();
-        pg_bars.remove(&bar);
-    } else {
-        log::warn!("Request successful, however content length could not be retrieved.");
-        let mut stream = response.bytes_stream();
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result?;
-            file.write_all(&chunk).await?;
-        }
-    }
-
-    file.flush().await?;
-
-    info!(
-        "Download complete. Time: {:?}\nFile saved locally at {}",
-        start_instant.elapsed(),
-        file_path
+    let sql_query = format!(
+        "INSERT INTO {OSV_TABLE_NAME}(\"id\", {OSV_DATA_COLUMN_NAME}) SELECT UNNEST($1::character({OSV_ID_MAX_CHARACTERS})[]), UNNEST($2::jsonb[])",
     );
+    let result = sqlx::query(&sql_query)
+        .bind(ids_partitioned)
+        .bind(batch)
+        .execute(db_connection)
+        .await?;
+    // this should not modify any existing values
+    assert_eq!(result.rows_affected() as usize, buffer_separators.len());
     Ok(())
 }
 

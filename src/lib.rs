@@ -43,6 +43,7 @@ const EMPTY: i64 = 0;
 mod db_api;
 mod scrape_mod;
 mod utils;
+mod download;
 
 #[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
@@ -161,14 +162,26 @@ pub async fn osv_scraper(pg_bars: indicatif::MultiProgress) {
     use sqlx::Executor;
 
     let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
-    db_conn
-        .execute(sqlx::query("DELETE FROM osv"))
-        .await
-        .unwrap();
 
     let client = reqwest::Client::new();
 
     scrape_mod::osv_scraper::scrape_osv_full(client, db_conn, &pg_bars)
+        .await
+        .unwrap();
+}
+
+pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
+    use sqlx::Executor;
+
+    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+    // db_conn
+    //     .execute(sqlx::query("DELETE FROM osv"))
+    //     .await
+    //     .unwrap();
+
+    let client = reqwest::Client::new();
+
+    scrape_mod::github_scraper::download_full(client, db_conn, &pg_bars)
         .await
         .unwrap();
 }

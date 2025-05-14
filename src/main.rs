@@ -19,4 +19,6 @@ async fn main() {
     // _exploitdb_scraper().await;
     #[cfg(feature = "osv")]
     vex_hk::osv_scraper(pg_bars).await;
+
+ //   vex_hk::github_advisories_scraper(pg_bars).await;
 }
