@@ -5,7 +5,7 @@ use quick_xml::{events::Event, Reader};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use sqlx::{Execute, Executor, Postgres, QueryBuilder};
+use sqlx::{postgres::PgPoolCopyExt, Execute, Executor, Postgres, QueryBuilder};
 use std::{
     cmp::min,
     collections::HashMap,
@@ -59,7 +59,7 @@ const FULL_DATA_URL: &str = "https://storage.googleapis.com/osv-vulnerabilities/
 
 const TIMESTAMP_FILE_NAME: &str = "last_timestamp_osv";
 
-const TEMP_DOWNLOAD_FILE_PATH: &str = "./temp/osv_all_temp.zip";
+const TEMP_DOWNLOAD_FILE_PATH: &str = "/zmnt/osv_all_temp.zip";
 const TEMP_CSV_FILE_PATH: &str = "/zmnt/vex/osv_temp.csv";
 
 // example id: ALBA-2019:0973
@@ -99,9 +99,13 @@ pub async fn scrape_osv_full(
 
     info!("Starting full OSV database download.");
 
-    // download_and_save_to_file_in_chunks(client, FULL_DATA_URL, Path::new(TEMP_DOWNLOAD_FILE_PATH), &pg_bars)
-     //   .await?;
-    create_csv(Path::new(TEMP_DOWNLOAD_FILE_PATH), Path::new(TEMP_CSV_FILE_PATH), pg_bars).await?;
+    let download_path = Path::new(TEMP_DOWNLOAD_FILE_PATH);
+    let csv_path = Path::new(TEMP_CSV_FILE_PATH);
+
+    download_and_save_to_file_in_chunks(client, FULL_DATA_URL, Path::new(TEMP_DOWNLOAD_FILE_PATH), &pg_bars)
+       .await?;
+    let row_count = create_csv(download_path, csv_path, pg_bars).await?;
+    send_csv_to_database(&db_connection, csv_path, row_count).await?;
     // update_osv_timestamp()?;
 
     info!(
@@ -117,7 +121,7 @@ pub async fn create_csv(
     download: &Path,
     csv: &Path,
     pg_bars: &indicatif::MultiProgress,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<usize, Box<dyn std::error::Error>> {
     let processing_start = Instant::now();
 
     let download_file = File::open(download)?;
@@ -137,6 +141,7 @@ pub async fn create_csv(
         .from_path(csv)?;
 
     let mut buffer: String = String::with_capacity(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE);
+    let mut processed_file_count = 0;
     for file_i in 0..archive.len() {
         let mut file = archive.by_index(file_i)?;
 
@@ -176,6 +181,7 @@ pub async fn create_csv(
             csv_writer.write_record(&[id, &serde_json::json!(osv_record).to_string()])?;
             buffer.clear();
             bar.set_position((file_i + 1) as u64);
+            processed_file_count += 1;
         }
     }
 
@@ -188,54 +194,29 @@ pub async fn create_csv(
         processing_start.elapsed()
     );
 
-    Ok(())
+    Ok(processed_file_count)
 }
 
-async fn send_batch<'a>(
+async fn send_csv_to_database(
     db_connection: &sqlx::Pool<sqlx::Postgres>,
-    buffer: &'a String,
-    buffer_separators: &'a Vec<usize>, // offsets between files in the buffer
-    ids: &'a String,
-    ids_separators: &'a Vec<usize>,
+    file_path: &Path,
+    rows_count: usize,
 ) -> Result<(), sqlx::Error> {
-    assert!(buffer_separators.len() > 0);
-    assert_eq!(buffer_separators[buffer_separators.len() - 1], buffer.len());
-    assert_eq!(buffer_separators.len(), ids_separators.len());
-    assert_eq!(ids_separators[ids_separators.len() - 1], ids.len());
+    log::info!("Opening csv and sending to database");
+    let processing_start = Instant::now();
 
-    let mut start = 0;
-    let batch: Vec<&str> = buffer_separators
-        .iter()
-        .map(|&sep| {
-            let item = buffer.get(start..sep).unwrap();
-            start = sep;
-            item
-        })
-        .collect();
-    start = 0;
-    let ids_partitioned: Vec<&str> = ids_separators
-        .iter()
-        .map(|&sep| {
-            let item = ids.get(start..sep).unwrap();
-            start = sep;
-            item
-        })
-        .collect();
-    log::info!(
-        "Sending {} files, {}",
-        batch.len(),
-        human_bytes::human_bytes(buffer_separators[buffer_separators.len() - 1] as f64)
-    );
-    let sql_query = format!(
-        "INSERT INTO {OSV_TABLE_NAME}(\"id\", {OSV_DATA_COLUMN_NAME}) SELECT UNNEST($1::character({OSV_ID_MAX_CHARACTERS})[]), UNNEST($2::jsonb[])",
-    );
-    let result = sqlx::query(&sql_query)
-        .bind(ids_partitioned)
-        .bind(batch)
-        .execute(db_connection)
-        .await?;
+    let mut copy_conn = db_connection.copy_in_raw("COPY osv FROM STDIN (FORMAT csv, DELIMITER ',')").await?;
+    // todo: handle error
+    let file = tokio::fs::File::open(file_path).await.expect("Failed to open file");
+
+    copy_conn.read_from(file).await?;
+
+    let result = copy_conn.finish().await?;
     // this should not modify any existing values
-    assert_eq!(result.rows_affected() as usize, buffer_separators.len());
+    assert_eq!(result as usize, rows_count);
+
+    log::info!("Finished {:?}", processing_start.elapsed());
+
     Ok(())
 }
 
