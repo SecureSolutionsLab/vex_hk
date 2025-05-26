@@ -2,12 +2,14 @@ use std::{
     io::{BufRead, BufReader},
     path::Path,
     process::{Command, Stdio},
+    time::Instant,
 };
 
 #[cfg(feature = "nvd")]
 use chrono::NaiveDate;
 #[cfg(feature = "nvd")]
 use log::error;
+use sqlx::postgres::PgPoolCopyExt;
 #[cfg(feature = "nvd")]
 use std::{
     iter::once,
@@ -41,9 +43,9 @@ const TIME_INTERVAL: u64 = 3600;
 const EMPTY: i64 = 0;
 
 mod db_api;
+mod download;
 mod scrape_mod;
 mod utils;
-mod download;
 
 #[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
@@ -289,4 +291,35 @@ fn parse_year(year: &str) -> i32 {
         error!("Failed to parse year: '{}'", year);
         0
     })
+}
+
+async fn open_and_send_csv_to_database_whole(
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    file_path: &Path,
+    table_name: &str,
+    expected_rows_count: usize,
+) -> Result<(), sqlx::Error> {
+    log::info!(
+        "Opening {:?} and sending whole to database, table name: {}",
+        file_path,
+        table_name
+    );
+    let processing_start = Instant::now();
+    let mut copy_conn = db_connection
+        .copy_in_raw(&format!(
+            "COPY \"{}\" FROM STDIN (FORMAT csv, DELIMITER ',')",
+            table_name
+        ))
+        .await?;
+
+    let file = tokio::fs::File::open(file_path).await?;
+
+    copy_conn.read_from(file).await?;
+
+    let result = copy_conn.finish().await?;
+    assert_eq!(result as usize, expected_rows_count);
+
+    log::info!("Finished sending scv in {:?}", processing_start.elapsed());
+
+    Ok(())
 }

@@ -3,20 +3,18 @@ use std::{fs, path::Path, time::Instant};
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-
 #[derive(thiserror::Error, Debug)]
 pub enum DownloadError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("Reqwest HTTP Error: {0}")]
-    Reqwest(#[from] reqwest::Error)
+    Reqwest(#[from] reqwest::Error),
 }
-
 
 /// Download and stream to a file without storing the contents in memory (best for very big files).
 ///
 /// Creates a folder for the download file if it doesn't already exist.
-/// 
+///
 /// Uses a tokio BufWriter in order to not perform much spawn_blocking.
 pub async fn download_and_save_to_file_in_chunks(
     client: reqwest::Client,

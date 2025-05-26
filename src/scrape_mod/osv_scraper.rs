@@ -102,10 +102,16 @@ pub async fn scrape_osv_full(
     let download_path = Path::new(TEMP_DOWNLOAD_FILE_PATH);
     let csv_path = Path::new(TEMP_CSV_FILE_PATH);
 
-    download_and_save_to_file_in_chunks(client, FULL_DATA_URL, Path::new(TEMP_DOWNLOAD_FILE_PATH), &pg_bars)
-       .await?;
+    download_and_save_to_file_in_chunks(
+        client,
+        FULL_DATA_URL,
+        Path::new(TEMP_DOWNLOAD_FILE_PATH),
+        &pg_bars,
+    )
+    .await?;
     let row_count = create_csv(download_path, csv_path, pg_bars).await?;
-    send_csv_to_database(&db_connection, csv_path, row_count).await?;
+    crate::open_and_send_csv_to_database_whole(&db_connection, csv_path, OSV_TABLE_NAME, row_count)
+        .await?;
     // update_osv_timestamp()?;
 
     info!(
@@ -127,7 +133,11 @@ pub async fn create_csv(
     let download_file = File::open(download)?;
     let mut archive = ZipArchive::new(download_file)?;
 
-    info!("About to process and convert {} files to csv. File created at {:?}", archive.len(), csv);
+    log::info!(
+        "About to process and convert {} files to csv. File created at {:?}",
+        archive.len(),
+        csv
+    );
 
     let bar = pg_bars.add(indicatif::ProgressBar::new(archive.len() as u64));
 
@@ -159,12 +169,10 @@ pub async fn create_csv(
                 );
             }
 
-            let old_byte_i = buffer.len();
             let osv_record = {
                 // faster than using serde_json::from_reader and BufReader
                 file.read_to_string(&mut buffer)?;
-                let current = buffer.get(old_byte_i..).unwrap();
-                serde_json::from_str::<OSV>(current)?
+                serde_json::from_str::<OSV>(&buffer)?
             };
             let id = &osv_record.id;
             if id.len() > OSV_ID_MAX_CHARACTERS {
@@ -189,35 +197,12 @@ pub async fn create_csv(
 
     bar.finish();
     pg_bars.remove(&bar);
-    info!(
+    log::info!(
         "Finished. Total processing time: {:?}",
         processing_start.elapsed()
     );
 
     Ok(processed_file_count)
-}
-
-async fn send_csv_to_database(
-    db_connection: &sqlx::Pool<sqlx::Postgres>,
-    file_path: &Path,
-    rows_count: usize,
-) -> Result<(), sqlx::Error> {
-    log::info!("Opening csv and sending to database");
-    let processing_start = Instant::now();
-
-    let mut copy_conn = db_connection.copy_in_raw("COPY osv FROM STDIN (FORMAT csv, DELIMITER ',')").await?;
-    // todo: handle error
-    let file = tokio::fs::File::open(file_path).await.expect("Failed to open file");
-
-    copy_conn.read_from(file).await?;
-
-    let result = copy_conn.finish().await?;
-    // this should not modify any existing values
-    assert_eq!(result as usize, rows_count);
-
-    log::info!("Finished {:?}", processing_start.elapsed());
-
-    Ok(())
 }
 
 /// OSV timestamp is updated to today's date at midnight (UTC) in RFC3339 format using `store_key`.
