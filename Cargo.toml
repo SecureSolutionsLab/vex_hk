@@ -26,6 +26,7 @@ bytes = "1.10.1"
 futures-util = "0.3.31"
 indicatif = { version = "0.17.11", features = ["futures"] }
 indicatif-log-bridge = "0.2.3"
+regex = "1.11.1"
 
 [features]
 "default" = ["osv"]

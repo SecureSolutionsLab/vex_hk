@@ -7,7 +7,7 @@ pub type GitHubAdvisoryAPIResponses = Vec<GitHubAdvisoryAPIResponse>;
 #[serde(deny_unknown_fields)]
 pub struct GitHubAdvisoryAPIResponse {
     ghsa_id: String,
-    cve_id: String,
+    cve_id: Option<String>,
     url: String,
     html_url: String,
     repository_advisory_url: Option<String>,

@@ -33,27 +33,11 @@ async fn main() {
     };
 
     let client = reqwest::Client::new();
-    let request = client
-        .get("https://api.github.com/advisories")
-        .bearer_auth(token)
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header(reqwest::header::USER_AGENT, "User")
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-        .query(&[("published", ">2025-05-20"), ("type", "reviewed")])
-        .build()
-        .unwrap();
 
-    println!("{:#?}", request);
-
-    let response = client.execute(request).await.unwrap();
-
-    println!("{:#?}", response);
-
-    let data = response
-        .json::<vex_hk::scrape_mod::github::api_response::GitHubAdvisoryAPIResponses>()
-        .await
-        .unwrap();
-    println!("{:#?}", data);
-
-    println!("{}", data.len());
+    vex_hk::scrape_mod::github::api_caller::get_paginated_github_advisories_data(
+        client,
+        token,
+        &[("published", ">2025-05-20"), ("type", "reviewed"), ("per_page", "10")],
+    )
+    .await;
 }
