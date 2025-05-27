@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::Utc;
 #[cfg(feature = "osv")]
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
@@ -343,10 +344,10 @@ pub struct OSV {
 pub struct OSVGitHubExtended {
     pub schema_version: String,
     pub id: String,
-    pub modified: String,
-    pub published: String,
+    pub modified: DateTime<Utc>,
+    pub published: DateTime<Utc>,
     #[serde(default)]
-    pub withdrawn: String,
+    pub withdrawn: DateTime<Utc>,
     #[serde(default)]
     pub aliases: Vec<String>,
     #[serde(default)]

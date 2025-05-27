@@ -46,11 +46,13 @@ GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME);
         DROP TABLE IF EXISTS \"{GITHUB_REVIEWED_TABLE_NAME}\";
         DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
         CREATE TABLE \"{GITHUB_REVIEWED_TABLE_NAME}\" (
-            \"id\" character({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
+            \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
+            \"modified\" TIMESTAMPTZ NOT NULL,
             \"data\" JSONB NOT NULL
         );
         CREATE TABLE \"{GITHUB_UNREVIEWED_TABLE_NAME}\" (
-            \"id\" character({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
+            \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
+            \"modified\" TIMESTAMPTZ NOT NULL,
             \"data\" JSONB NOT NULL
         );",
             ))
@@ -82,7 +84,20 @@ GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME);
     .await?;
 
     println!("{} {}", row_count_reviewed, row_count_unreviewed);
-    // send_csv_to_database(&db_connection, csv_path, row_count).await?;
+    crate::open_and_send_csv_to_database_whole(
+        &db_connection,
+        csv_path_reviewed,
+        GITHUB_REVIEWED_TABLE_NAME,
+        row_count_reviewed,
+    )
+    .await?;
+    crate::open_and_send_csv_to_database_whole(
+        &db_connection,
+        csv_path_unreviewed,
+        GITHUB_UNREVIEWED_TABLE_NAME,
+        row_count_unreviewed,
+    )
+    .await?;
 
     log::info!(
         "Finished downloading and parsing the full OSV database. Total time: {:?}",
@@ -192,12 +207,13 @@ pub async fn create_csv(
             }
         }
 
+        let modified = osv_record.modified.to_rfc3339();
+        let record = [id, &modified, &serde_json::json!(osv_record).to_string()];
         if reviewed {
-            csv_writer_reviewed.write_record(&[id, &serde_json::json!(osv_record).to_string()])?;
+            csv_writer_reviewed.write_record(&record)?;
             processed_file_count_reviewed += 1;
         } else {
-            csv_writer_unreviewed
-                .write_record(&[id, &serde_json::json!(osv_record).to_string()])?;
+            csv_writer_unreviewed.write_record(&record)?;
             processed_file_count_unreviewed += 1;
         }
         buffer.clear();
