@@ -10,7 +10,7 @@ pub mod nvd_scraper;
 #[cfg(feature = "osv")]
 pub mod osv_scraper;
 
-pub mod github_scraper;
+pub mod github;
 
 // ?
 fn _private_hello() {

@@ -378,6 +378,8 @@ pub struct GitHubDatabaseSpecific {
     github_reviewed_at: Option<String>,
     #[serde(default)]
     nvd_published_at: Option<String>,
+    #[serde(default)]
+    last_known_affected_version_range: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -44,7 +44,7 @@ const EMPTY: i64 = 0;
 
 mod db_api;
 mod download;
-mod scrape_mod;
+pub mod scrape_mod;
 mod utils;
 
 #[cfg(feature = "nvd")]
@@ -183,7 +183,7 @@ pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
 
     let client = reqwest::Client::new();
 
-    scrape_mod::github_scraper::download_full(client, db_conn, &pg_bars)
+    scrape_mod::github::download_full(client, db_conn, &pg_bars)
         .await
         .unwrap();
 }
