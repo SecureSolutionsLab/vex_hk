@@ -34,10 +34,21 @@ async fn main() {
 
     let client = reqwest::Client::new();
 
-    vex_hk::scrape_mod::github::api_caller::get_paginated_github_advisories_data(
-        client,
-        token,
-        &[("published", ">2025-05-20"), ("type", "reviewed"), ("per_page", "10")],
+    let mut iter = vex_hk::scrape_mod::github::api_caller::PaginatedGithubAdvisoriesDataIter::new(
+        &client,
+        &token,
+        &[("published", ">2025-05-23"), ("type", "reviewed")],
     )
-    .await;
+    .unwrap();
+
+    while let Some(res) = iter.next_page_data().await {
+        println!("{}", res.unwrap().len());
+    }
+
+    // vex_hk::scrape_mod::github::api_caller::get_paginated_github_advisories_data(
+    //     client,
+    //     token,
+    //     &[("published", ">2025-05-20"), ("type", "reviewed"), ("per_page", "10")],
+    // )
+    // .await;
 }

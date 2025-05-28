@@ -5,32 +5,64 @@ use super::api_response::GitHubAdvisoryAPIResponse;
 // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
 const URL_MATCH: &str = r"https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*)";
 
-pub async fn get_paginated_github_advisories_data(
-    client: reqwest::Client,
-    token: String,
-    query: &[(&str, &str)],
-) -> Vec<GitHubAdvisoryAPIResponse> {
-    let next_pattern = Regex::new(&("<(".to_owned() + URL_MATCH + ")>; rel=\"next\"")).unwrap();
+pub struct PaginatedGithubAdvisoriesDataIter<'a> {
+    client: &'a reqwest::Client,
+    token: &'a str,
+    header_next_pattern: Regex,
+    request: reqwest::Request,
+    finished: bool,
+}
 
-    let mut request = client
-        .get("https://api.github.com/advisories")
-        .bearer_auth(token)
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header(reqwest::header::USER_AGENT, "User")
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-        .query(query)
-        .build()
-        .unwrap();
+impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
+    pub fn new(
+        client: &'a reqwest::Client,
+        token: &'a str,
+        query: &[(&str, &str)],
+    ) -> Result<Self, reqwest::Error> {
+        let next_pattern = Regex::new(&("<(".to_owned() + URL_MATCH + ")>; rel=\"next\"")).unwrap();
 
-    loop {
-        println!("{:#?}", request.try_clone().unwrap());
+        let request = client
+            .get("https://api.github.com/advisories")
+            .bearer_auth(token)
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header(reqwest::header::USER_AGENT, "User")
+            .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+            .query(&[("per_page", "10")])
+            .query(query)
+            .build()?;
 
-        let response = client.execute(request.try_clone().unwrap()).await.unwrap();
+        Ok(Self {
+            client,
+            token,
+            header_next_pattern: next_pattern,
+            request,
+            finished: false,
+        })
+    }
+
+    pub async fn next_page_data(
+        &mut self,
+    ) -> Option<Result<Vec<GitHubAdvisoryAPIResponse>, reqwest::Error>> {
+        if self.finished {
+            return None;
+        }
+        Some(self.next_page_data_perform_request().await)
+    }
+
+    pub async fn next_page_data_perform_request(
+        &mut self,
+    ) -> Result<Vec<GitHubAdvisoryAPIResponse>, reqwest::Error> {
+        println!("{:#?}", self.request.try_clone().unwrap());
+
+        let response = self
+            .client
+            .execute(self.request.try_clone().unwrap())
+            .await?;
 
         println!("{:#?}", response);
 
         let next_url_opt = if let Some(link_header) = response.headers().get("link") {
-            next_pattern
+            self.header_next_pattern
                 .captures(
                     link_header
                         .to_str()
@@ -41,34 +73,19 @@ pub async fn get_paginated_github_advisories_data(
             None
         };
 
-        {
-            // // save response text for debugging
-            // let text = response .text().await.unwrap();
-            // let mut file = std::fs::File::create("./temp/out").unwrap();
-            // file.write_all(&text.as_bytes()).unwrap();
-            // file.flush().unwrap();
+        let data = response
+            .json::<crate::scrape_mod::github::api_response::GitHubAdvisoryAPIResponses>()
+            .await
+            .unwrap();
 
-            let data = response
-                .json::<crate::scrape_mod::github::api_response::GitHubAdvisoryAPIResponses>()
-                .await
-                .unwrap();
-            // println!("{:#?}", data);
-
-            println!("{}", data.len());
-        }
-
-        let Some(next_url) = next_url_opt else {
-            break;
-        };
-
-        println!("next {:?}", next_url);
-
-        {
-            let url = request.url_mut();
+        if let Some(next_url) = next_url_opt {
+            let url = self.request.url_mut();
             *url = reqwest::Url::parse(&next_url)
                 .expect("Failed to parse url returned from pagination header");
+        } else {
+            self.finished = true;
         }
-    }
 
-    Vec::new()
+        Ok(data)
+    }
 }
