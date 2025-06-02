@@ -11,7 +11,7 @@ use zip::ZipArchive;
 use crate::{
     db_api::consts::{GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME},
     download::download_and_save_to_file_in_chunks,
-    scrape_mod::structs::OSVGitHubExtended,
+    scrape_mod::github::OSVGitHubExtended,
 };
 
 const FULL_DATA_URL: &str =

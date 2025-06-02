@@ -47,6 +47,8 @@ mod download;
 pub mod scrape_mod;
 mod utils;
 
+mod osv_schema;
+
 #[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
     if let Err(e) = consts_checker() {

@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
 
+use super::OSVGitHubExtended;
+
 pub type GitHubAdvisoryAPIResponses = Vec<GitHubAdvisoryAPIResponse>;
 
 // https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
@@ -33,6 +35,14 @@ pub struct GitHubAdvisoryAPIResponse {
     credits: Option<Vec<GitHubAdvisoryAPIResponseCreditsItem>>,
 }
 
+// impl GitHubAdvisoryAPIResponse {
+//     fn to_osv(self) -> OSVGitHubExtended {
+//         OSVGitHubExtended {
+//             schema_version: ""
+//         }
+//     }
+// }
+
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GitHubAdvisoryAPIResponseType {
@@ -61,8 +71,8 @@ pub struct GitHubAdvisoryAPIResponseSeverityIdentifier {
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum GitHubAdvisoryAPIResponseSeverityIdentifierType {
-    CVE,
-    GHSA,
+    Cve,
+    Ghsa,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]

@@ -1,29 +1,24 @@
 use chrono::{DateTime, FixedOffset, Utc};
-use futures_util::StreamExt;
 use log::{error, info};
 use quick_xml::{events::Event, Reader};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use sqlx::{postgres::PgPoolCopyExt, Execute, Executor, Postgres, QueryBuilder};
+use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 use std::{
-    cmp::min,
     collections::HashMap,
     error::Error,
     fs::{self, File},
     io::Read,
-    iter,
     path::Path,
-    sync::Arc,
     time::{Duration, Instant},
 };
 use thiserror::Error;
-use tokio::{io::AsyncWriteExt, sync::Mutex, time::sleep};
+use tokio::time::sleep;
 use zip::ZipArchive;
 
 use crate::{
     db_api::{
-        self,
         consts::{ID, OSV_DATA_COLUMN_NAME, OSV_TABLE_NAME},
         db_connection::get_db_connection,
         delete::remove_entries_id,
@@ -32,7 +27,8 @@ use crate::{
         structs::{EntryInput, EntryStatus},
     },
     download::download_and_save_to_file_in_chunks,
-    scrape_mod::structs::{Sitemap, OSV},
+    osv_schema::{OSVGeneralized, OSV},
+    scrape_mod::structs::Sitemap,
     utils::config::{read_key, store_key},
 };
 
@@ -172,7 +168,17 @@ pub async fn create_csv(
             let osv_record = {
                 // faster than using serde_json::from_reader and BufReader
                 file.read_to_string(&mut buffer)?;
-                serde_json::from_str::<OSV>(&buffer)?
+                let res = serde_json::from_str::<OSVGeneralized>(&buffer);
+                // todo: update to panic better
+                // error probably because the schema updated
+                let res_ok = match res {
+                    Ok(v) => v,
+                    Err(err) => {
+                        log::error!("{}", &buffer);
+                        panic!("{}: {}", file_i, err);
+                    }
+                };
+                res_ok
             };
             let id = &osv_record.id;
             if id.len() > OSV_ID_MAX_CHARACTERS {
@@ -598,7 +604,7 @@ fn extract_title(url: &str) -> Option<&str> {
 ///
 /// * `Ok(OSV)` if the JSON data is successfully fetched and parsed.
 /// * `Err(ParseError)` if any error occurs during the process (HTTP, HTML parsing, or JSON deserialization).
-async fn fetch_osv_details(url: &str) -> Result<OSV, ParseError> {
+async fn fetch_osv_details(url: &str) -> Result<OSVGeneralized, ParseError> {
     info!("Fetching HTML from: {}", url);
     let client = Client::new();
 
@@ -640,6 +646,6 @@ async fn fetch_osv_details(url: &str) -> Result<OSV, ParseError> {
     let json_text = json_response.text().await?;
 
     // Deserialize the JSON into the OSV struct.
-    let osv: OSV = serde_json::from_str(&json_text)?;
+    let osv: OSVGeneralized = serde_json::from_str(&json_text)?;
     Ok(osv)
 }

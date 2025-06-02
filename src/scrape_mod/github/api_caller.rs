@@ -7,7 +7,6 @@ const URL_MATCH: &str = r"https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a
 
 pub struct PaginatedGithubAdvisoriesDataIter<'a> {
     client: &'a reqwest::Client,
-    token: &'a str,
     header_next_pattern: Regex,
     request: reqwest::Request,
     finished: bool,
@@ -33,7 +32,6 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
 
         Ok(Self {
             client,
-            token,
             header_next_pattern: next_pattern,
             request,
             finished: false,

@@ -1,9 +1,7 @@
 use async_trait::async_trait;
-use chrono::Utc;
 #[cfg(feature = "osv")]
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct NVDCve {
@@ -310,100 +308,6 @@ pub struct Event {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DatabaseSpecific {
     pub source: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct OSV {
-    pub schema_version: String,
-    pub id: String,
-    pub modified: String,
-    pub published: String,
-    #[serde(default)]
-    pub withdrawn: String,
-    #[serde(default)]
-    pub aliases: Vec<String>,
-    #[serde(default)]
-    pub related: Vec<String>,
-    #[serde(default)]
-    pub summary: String,
-    #[serde(default)]
-    pub details: String,
-    #[serde(default)]
-    pub severity: Vec<Severity>,
-    #[serde(default)]
-    pub affected: Vec<Affected>,
-    #[serde(default)]
-    pub references: Vec<Reference>,
-    #[serde(default)]
-    pub credits: Vec<Credit>,
-    #[serde(default)]
-    pub database_specific: Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct OSVGitHubExtended {
-    pub schema_version: String,
-    pub id: String,
-    pub modified: DateTime<Utc>,
-    pub published: DateTime<Utc>,
-    #[serde(default)]
-    pub withdrawn: DateTime<Utc>,
-    #[serde(default)]
-    pub aliases: Vec<String>,
-    #[serde(default)]
-    pub related: Vec<String>,
-    #[serde(default)]
-    pub summary: String,
-    #[serde(default)]
-    pub details: String,
-    #[serde(default)]
-    pub severity: Vec<Severity>,
-    #[serde(default)]
-    pub affected: Vec<Affected>,
-    #[serde(default)]
-    pub references: Vec<Reference>,
-    #[serde(default)]
-    pub credits: Vec<Credit>,
-    pub database_specific: GitHubDatabaseSpecific,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GitHubDatabaseSpecific {
-    cwe_ids: Vec<String>,
-    // can be null for unreviewed
-    #[serde(default)]
-    severity: Option<GithubSeverity>,
-    github_reviewed: bool,
-    #[serde(default)]
-    github_reviewed_at: Option<String>,
-    #[serde(default)]
-    nvd_published_at: Option<String>,
-    #[serde(default)]
-    last_known_affected_version_range: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum GithubSeverity {
-    UNKNOWN,
-    LOW,
-    MODERATE,
-    HIGH,
-    CRITICAL,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Severity {
-    pub r#type: String,
-    pub score: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Credit {
-    pub name: String,
-    #[serde(default)]
-    pub contact: Vec<String>,
-    #[serde(default)]
-    pub r#type: String,
 }
 
 #[cfg(feature = "osv")]
