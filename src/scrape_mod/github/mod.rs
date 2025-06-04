@@ -1,6 +1,7 @@
 pub mod api_data_retriever;
 pub mod api_response;
 mod full_data;
+pub mod osv_file_from_api_downloader;
 
 use const_format::concatcp;
 pub use full_data::download_full;
@@ -10,7 +11,8 @@ use crate::osv_schema::OSV;
 
 const TEMP_PATH_FOLDER: &str = "/zmnt";
 
-const TEMP_DIR_PATH_API_DATA_REVIEWED: &str =  concatcp!(TEMP_PATH_FOLDER, "/vex/api_data_download_reviewed");
+const TEMP_DIR_PATH_API_DATA_REVIEWED: &str =
+    concatcp!(TEMP_PATH_FOLDER, "/vex/api_data_download_reviewed");
 
 pub type OSVGitHubExtended = OSV<GitHubDatabaseSpecific>;
 

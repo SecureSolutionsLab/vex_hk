@@ -139,7 +139,7 @@ pub async fn create_csv(
 
     let parent = csv.parent().unwrap();
     if !fs::exists(parent)? {
-        fs::create_dir(parent)?;
+        fs::create_dir_all(parent)?;
     }
     let mut csv_writer = csv::WriterBuilder::new()
         .buffer_capacity(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE)

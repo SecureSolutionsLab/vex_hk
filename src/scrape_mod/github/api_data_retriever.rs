@@ -1,4 +1,4 @@
-use std::{fs, io::Write, path::Path};
+use std::{fs, io::{BufWriter, Write}, path::Path};
 
 use regex::Regex;
 use serde::Serialize;
@@ -103,27 +103,37 @@ pub enum GithubApiDownloadError {
     Serialization(#[from] serde_json::Error),
 }
 
-// malware unimplemented
-pub enum GithubApiDownload {
+// "malware" unimplemented
+#[derive(Clone, Copy)]
+pub enum GithubApiDownloadType {
     Reviewed,
     Unreviewed,
 }
 
-impl GithubApiDownload {
-    pub fn api_str(self) -> String {
+impl GithubApiDownloadType {
+    pub fn api_str(self) -> &'static str {
         match self {
-            Self::Reviewed => "reviewed".to_owned(),
-            Self::Unreviewed => "unreviewed".to_owned()
+            Self::Reviewed => "reviewed",
+            Self::Unreviewed => "unreviewed",
+        }
+    }
+
+    pub fn path_str(self) -> &'static str {
+        match self {
+            Self::Reviewed => "github-reviewed",
+            Self::Unreviewed => "unreviewed",
         }
     }
 }
 
+
+// save full files in directory
 pub async fn download_and_save_api_data_after_update_date(
     client: &reqwest::Client,
     token: &str,
     save_dir_path: &Path,
     date: chrono::NaiveDate,
-    ty: GithubApiDownload
+    ty: GithubApiDownloadType,
 ) -> Result<(usize, usize), GithubApiDownloadError> {
     {
         if !fs::exists(save_dir_path)? {
@@ -139,17 +149,18 @@ pub async fn download_and_save_api_data_after_update_date(
         token,
         &[
             ("published", &date.format(">=%Y-%m-%d").to_string()),
-            ("type", &ty.api_str()),
+            ("type", ty.api_str()),
         ],
     )?;
-    let mut total_entries= 0;
+    let mut total_entries = 0;
     let mut i = 0;
     let mut buffer = Vec::new();
     while let Some(next_page_res) = paginated_iter.next_page_data().await {
         let next_page_data = next_page_res?;
         total_entries += next_page_data.len();
 
-        let mut file = std::fs::File::create(format!("{}/{}.json", save_dir_path.to_str().unwrap(), i))?;
+        let mut file =
+            std::fs::File::create(format!("{}/{}.json", save_dir_path.to_str().unwrap(), i))?;
         serde_json::to_writer_pretty(&mut buffer, &next_page_data)?;
         file.write_all(&mut buffer)?;
         file.flush()?;
