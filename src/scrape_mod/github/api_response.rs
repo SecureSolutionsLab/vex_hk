@@ -35,14 +35,6 @@ pub struct GitHubAdvisoryAPIResponse {
     credits: Option<Vec<GitHubAdvisoryAPIResponseCreditsItem>>,
 }
 
-// impl GitHubAdvisoryAPIResponse {
-//     fn to_osv(self) -> OSVGitHubExtended {
-//         OSVGitHubExtended {
-//             schema_version: ""
-//         }
-//     }
-// }
-
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GitHubAdvisoryAPIResponseType {

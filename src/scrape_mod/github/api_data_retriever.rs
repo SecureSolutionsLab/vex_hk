@@ -1,4 +1,9 @@
+use std::{fs, io::Write, path::Path};
+
 use regex::Regex;
+use serde::Serialize;
+
+use crate::download::DownloadError;
 
 use super::api_response::GitHubAdvisoryAPIResponse;
 
@@ -26,7 +31,7 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header(reqwest::header::USER_AGENT, "User")
             .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-            .query(&[("per_page", "10")])
+            .query(&[("per_page", "100")])
             .query(query)
             .build()?;
 
@@ -47,7 +52,7 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
         Some(self.next_page_data_perform_request().await)
     }
 
-    pub async fn next_page_data_perform_request(
+    async fn next_page_data_perform_request(
         &mut self,
     ) -> Result<Vec<GitHubAdvisoryAPIResponse>, reqwest::Error> {
         println!("{:#?}", self.request.try_clone().unwrap());
@@ -86,4 +91,72 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
 
         Ok(data)
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GithubApiDownloadError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error("Reqwest HTTP Error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("Failed to serialize data to json")]
+    Serialization(#[from] serde_json::Error),
+}
+
+// malware unimplemented
+pub enum GithubApiDownload {
+    Reviewed,
+    Unreviewed,
+}
+
+impl GithubApiDownload {
+    pub fn api_str(self) -> String {
+        match self {
+            Self::Reviewed => "reviewed".to_owned(),
+            Self::Unreviewed => "unreviewed".to_owned()
+        }
+    }
+}
+
+pub async fn download_and_save_api_data_after_update_date(
+    client: &reqwest::Client,
+    token: &str,
+    save_dir_path: &Path,
+    date: chrono::NaiveDate,
+    ty: GithubApiDownload
+) -> Result<(usize, usize), GithubApiDownloadError> {
+    {
+        if !fs::exists(save_dir_path)? {
+            fs::create_dir_all(save_dir_path)?;
+        } else {
+            fs::remove_dir_all(save_dir_path)?;
+            fs::create_dir(save_dir_path)?;
+        }
+    }
+
+    let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
+        client,
+        token,
+        &[
+            ("published", &date.format(">=%Y-%m-%d").to_string()),
+            ("type", &ty.api_str()),
+        ],
+    )?;
+    let mut total_entries= 0;
+    let mut i = 0;
+    let mut buffer = Vec::new();
+    while let Some(next_page_res) = paginated_iter.next_page_data().await {
+        let next_page_data = next_page_res?;
+        total_entries += next_page_data.len();
+
+        let mut file = std::fs::File::create(format!("{}/{}.json", save_dir_path.to_str().unwrap(), i))?;
+        serde_json::to_writer_pretty(&mut buffer, &next_page_data)?;
+        file.write_all(&mut buffer)?;
+        file.flush()?;
+        buffer.clear();
+
+        i += 1;
+    }
+
+    Ok((total_entries, i))
 }
