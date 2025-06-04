@@ -5,6 +5,7 @@ use super::OSVGitHubExtended;
 pub type GitHubAdvisoryAPIResponses = Vec<GitHubAdvisoryAPIResponse>;
 
 // https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
+// most fields are required, only cvss_severities and epss are not
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHubAdvisoryAPIResponse {
@@ -27,8 +28,10 @@ pub struct GitHubAdvisoryAPIResponse {
     withdrawn_at: Option<DateTime<Utc>>,
     vulnerabilities: Option<Vec<GitHubAdvisoryAPIResponseSeverityVulnerability>>,
     cvss: Option<GitHubAdvisoryAPIResponseCVSS>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     cvss_severities: Option<GitHubAdvisoryAPIResponseCVSSSeverities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     epss: Option<GitHubAdvisoryAPIResponseEPSS>,
     cwes: Option<Vec<GitHubAdvisoryAPIResponseCWE>>,
@@ -118,8 +121,10 @@ pub struct GitHubAdvisoryAPIResponseCVSSSeverities {
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHubAdvisoryAPIResponseEPSS {
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     percentage: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     percentile: Option<f32>,
 }
@@ -141,8 +146,10 @@ pub struct GitHubAdvisoryAPIResponseCreditsItem {
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHubAdvisoryAPIResponseCreditsUser {
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     email: Option<String>,
     login: String,

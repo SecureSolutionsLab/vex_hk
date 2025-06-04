@@ -47,6 +47,7 @@ pub struct OSV<T> {
 pub type OSVGeneralized = OSV<serde_json::Value>;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Severity {
     pub r#type: SeverityType, // required
     pub score: String,        // required
@@ -64,6 +65,7 @@ pub enum SeverityType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Affected {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
@@ -85,6 +87,7 @@ pub struct Affected {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Package {
     pub ecosystem: String, // required
     pub name: String,      // required
@@ -94,6 +97,7 @@ pub struct Package {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Range {
     pub r#type: RangeType, // required
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,6 +126,7 @@ pub enum Event {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Reference {
     pub r#type: ReferenceType, // required
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -147,6 +152,7 @@ pub enum ReferenceType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Credit {
     pub name: String, // required
     #[serde(skip_serializing_if = "Option::is_none")]
