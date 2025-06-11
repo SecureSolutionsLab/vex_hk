@@ -52,7 +52,7 @@ pub async fn download_and_save_to_file_in_chunks(
         bar.finish();
         pg_bars.remove(&bar);
     } else {
-        log::warn!("Request successful, however content length could not be retrieved.");
+        log::warn!("Request successful, however content length could not be retrieved. Attempting download.");
         let mut stream = response.bytes_stream();
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result?;

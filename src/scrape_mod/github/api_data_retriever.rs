@@ -5,9 +5,14 @@ use std::{
     path::Path,
 };
 
+use chrono::{DateTime, Utc};
 use regex::Regex;
 
-use super::api_response::GitHubAdvisoryAPIResponse;
+use crate::osv_schema::OsvEssentials;
+
+use super::{
+    api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubApiDownloadType,
+};
 
 // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
 const URL_MATCH: &str = r"https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*)";
@@ -93,47 +98,6 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum GithubApiDownloadError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error("Reqwest HTTP Error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("Failed to serialize data to json:\n{0}")]
-    Serialization(#[from] serde_json::Error),
-    #[error("CSV error: {0}")]
-    Csv(#[from] csv::Error),
-}
-
-// "malware" unimplemented
-#[derive(Clone, Copy)]
-pub enum GithubApiDownloadType {
-    Reviewed,
-    Unreviewed,
-}
-
-impl GithubApiDownloadType {
-    pub fn api_str(self) -> &'static str {
-        match self {
-            Self::Reviewed => "reviewed",
-            Self::Unreviewed => "unreviewed",
-        }
-    }
-
-    pub fn path_str(self) -> &'static str {
-        match self {
-            Self::Reviewed => "github-reviewed",
-            Self::Unreviewed => "unreviewed",
-        }
-    }
-}
-
-impl Display for GithubApiDownloadType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.api_str())
-    }
-}
-
 // Download api data for advisories modified after a specific date
 // and save as files to a directory
 // Date includes the day the advisory was modified
@@ -182,27 +146,16 @@ pub async fn download_and_save_api_data_after_update_date(
     Ok((total_entries, i))
 }
 
-// Create a csv file that contains only names and publish dates
+// Get only names, publish dates and modified dates
 // of advisories modified after a specific date (inclusive)
 //      (7 july will include advisories modified in 7 of july)
 // To be used for osv file retrieval
-pub async fn download_and_save_only_ids_after_update_date(
+pub async fn get_only_essential_after_modified_date(
     client: &reqwest::Client,
     token: &str,
-    csv_save_path: &Path,
     date: chrono::NaiveDate,
     ty: GithubApiDownloadType,
-) -> Result<usize, GithubApiDownloadError> {
-    {
-        let parent = csv_save_path.parent().unwrap();
-        if !fs::exists(parent)? {
-            fs::create_dir_all(parent)?;
-        }
-    }
-    let mut csv_writer = csv::WriterBuilder::new()
-        .has_headers(false)
-        .from_path(csv_save_path)?;
-
+) -> Result<Vec<OsvEssentials>, GithubApiDownloadError> {
     let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
         client,
         token,
@@ -211,16 +164,14 @@ pub async fn download_and_save_only_ids_after_update_date(
             ("type", ty.api_str()),
         ],
     )?;
-    let mut i = 0;
+    let mut data = Vec::new();
     while let Some(next_page_res) = paginated_iter.next_page_data().await {
         let next_page_data = next_page_res?;
 
-        for data in next_page_data {
-            csv_writer.write_record(&[data.ghsa_id, data.published_at.to_rfc3339()])?;
+        for full_data in next_page_data {
+            data.push(OsvEssentials::from_github_api(&full_data));
         }
-
-        i += 1;
     }
 
-    Ok(i)
+    Ok(data)
 }

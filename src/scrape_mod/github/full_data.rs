@@ -11,11 +11,12 @@ use zip::ZipArchive;
 use crate::{
     db_api::consts::{GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME},
     download::download_and_save_to_file_in_chunks,
+    scrape_mod::csv_conversion::{CsvCreationError, OsvCsvRow},
 };
 
 use super::{
-    OSVGitHubExtended, GITHUB_ID_CHARACTERS, TEMP_CSV_FILE_PATH_REVIEWED,
-    TEMP_CSV_FILE_PATH_UNREVIEWED, TEMP_DOWNLOAD_FILE_PATH, FULL_DATA_URL
+    OSVGitHubExtended, FULL_DATA_URL, GITHUB_ID_CHARACTERS, TEMP_CSV_FILE_PATH_REVIEWED,
+    TEMP_CSV_FILE_PATH_UNREVIEWED, TEMP_DOWNLOAD_FILE_PATH,
 };
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
@@ -26,9 +27,6 @@ pub async fn download_full(
     pg_bars: &indicatif::MultiProgress,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
-
-    log::info!("Creating new Github Advisories tables for GitHub-reviewed and unreviewed advisories, with names \"{}\" and \"{}\"",
-GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME);
 
     log::info!("Starting a download a full copy of Github Advisory database.");
 
@@ -51,6 +49,7 @@ GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME);
     )
     .await?;
 
+    log::info!("Recreating database table.");
     let database_delete_start = Instant::now();
     db_connection
         .execute(
@@ -70,11 +69,15 @@ DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
         .await
         .unwrap();
     log::info!(
-        "Finished deleting old database. Time: {:?}",
+        "Creating new Github Advisories tables for GitHub-reviewed and unreviewed advisories, with names \"{}\" and \"{}\"",
+        GITHUB_REVIEWED_TABLE_NAME,
+        GITHUB_UNREVIEWED_TABLE_NAME
+    );
+    log::info!(
+        "Finished recreating database table. Time: {:?}",
         database_delete_start.elapsed()
     );
 
-    println!("{} {}", row_count_reviewed, row_count_unreviewed);
     crate::open_and_send_csv_to_database_whole(
         &db_connection,
         csv_path_reviewed,
@@ -101,12 +104,12 @@ DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
     Ok(())
 }
 
-pub async fn create_csv(
+async fn create_csv(
     download: &Path,
     csv_reviewed: &Path,
     csv_unreviewed: &Path,
     pg_bars: &indicatif::MultiProgress,
-) -> Result<(usize, usize), Box<dyn std::error::Error>> {
+) -> Result<(usize, usize), CsvCreationError> {
     let processing_start = Instant::now();
 
     let download_file = File::open(download)?;
@@ -176,14 +179,16 @@ pub async fn create_csv(
         let osv_record = {
             // faster than using serde_json::from_reader and BufReader
             file.read_to_string(&mut buffer)?;
-            // todo
-            // serde_json::from_str::<OSVGitHubExtended>(&buffer).expect("todo")
             serde_json::from_str::<OSVGitHubExtended>(&buffer)
         };
         let osv_record = match osv_record {
             Ok(v) => v,
             Err(err) => {
-                log::warn!("Error reading file {:?}, {}", file.enclosed_name(), err);
+                log::error!(
+                    "Error reading file {:?}, {}\nSKIPPING",
+                    file.enclosed_name(),
+                    err
+                );
                 buffer.clear();
                 continue;
             }
@@ -200,8 +205,8 @@ pub async fn create_csv(
             }
         }
 
-        let modified = osv_record.modified.to_rfc3339();
-        let record = [id, &modified, &serde_json::json!(osv_record).to_string()];
+        let row_data = OsvCsvRow::from_osv(osv_record);
+        let record = row_data.as_row();
         if reviewed {
             csv_writer_reviewed.write_record(&record)?;
             processed_file_count_reviewed += 1;
@@ -220,8 +225,10 @@ pub async fn create_csv(
     bar.finish();
     pg_bars.remove(&bar);
     log::info!(
-        "Finished. Total processing time: {:?}",
-        processing_start.elapsed()
+        "Finished. Total processing time: {:?}\nTotal number of processed files: {} (Reviewed), {} (Unreviewed)",
+        processing_start.elapsed(),
+        processed_file_count_reviewed,
+        processed_file_count_unreviewed,
     );
 
     Ok((

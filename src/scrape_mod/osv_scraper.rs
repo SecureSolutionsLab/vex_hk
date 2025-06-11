@@ -27,8 +27,8 @@ use crate::{
         structs::{EntryInput, EntryStatus},
     },
     download::download_and_save_to_file_in_chunks,
-    osv_schema::{OSVGeneralized, OSV},
-    scrape_mod::structs::Sitemap,
+    osv_schema::OSVGeneralized,
+    scrape_mod::{csv_conversion::OsvCsvRow, structs::Sitemap},
     utils::config::{read_key, store_key},
 };
 
@@ -75,24 +75,6 @@ pub async fn scrape_osv_full(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
 
-    info!("Creating a new OSV table with name \"{OSV_TABLE_NAME}\" and data column \"{OSV_DATA_COLUMN_NAME}\"");
-
-    db_connection
-        .execute(
-            QueryBuilder::<Postgres>::new(format!(
-                "
-        DROP TABLE IF EXISTS \"{OSV_TABLE_NAME}\";
-        CREATE TABLE \"{OSV_TABLE_NAME}\" (
-            \"id\" character varying({OSV_ID_MAX_CHARACTERS}) PRIMARY KEY,
-            \"{OSV_DATA_COLUMN_NAME}\" JSONB NOT NULL
-        );",
-            ))
-            .build()
-            .sql(),
-        )
-        .await
-        .unwrap();
-
     info!("Starting full OSV database download.");
 
     let download_path = Path::new(TEMP_DOWNLOAD_FILE_PATH);
@@ -105,6 +87,32 @@ pub async fn scrape_osv_full(
         &pg_bars,
     )
     .await?;
+
+    log::info!("Recreating database table.");
+    let database_delete_start = Instant::now();
+    db_connection
+        .execute(
+            QueryBuilder::<Postgres>::new(format!(
+                "
+        DROP TABLE IF EXISTS \"{OSV_TABLE_NAME}\";
+        CREATE TABLE \"{OSV_TABLE_NAME}\" (
+            \"id\" character varying({OSV_ID_MAX_CHARACTERS}) PRIMARY KEY,
+            \"published\" TIMESTAMPTZ NOT NULL,
+            \"modified\" TIMESTAMPTZ NOT NULL,
+            \"{OSV_DATA_COLUMN_NAME}\" JSONB NOT NULL
+        );",
+            ))
+            .build()
+            .sql(),
+        )
+        .await
+        .unwrap();
+    info!("Creating a new OSV table with name \"{OSV_TABLE_NAME}\" and data column \"{OSV_DATA_COLUMN_NAME}\"");
+    log::info!(
+        "Finished recreating database table. Time: {:?}",
+        database_delete_start.elapsed()
+    );
+
     let row_count = create_csv(download_path, csv_path, pg_bars).await?;
     crate::open_and_send_csv_to_database_whole(&db_connection, csv_path, OSV_TABLE_NAME, row_count)
         .await?;
@@ -115,7 +123,8 @@ pub async fn scrape_osv_full(
         start.elapsed()
     );
 
-    //fs::remove_file(TEMP_FILE_PATH)?;
+    fs::remove_file(TEMP_CSV_FILE_PATH)?;
+    fs::remove_file(TEMP_DOWNLOAD_FILE_PATH)?;
     Ok(())
 }
 
@@ -192,7 +201,9 @@ pub async fn create_csv(
                 }
             }
 
-            csv_writer.write_record(&[id, &serde_json::json!(osv_record).to_string()])?;
+            let row_data = OsvCsvRow::from_osv(osv_record);
+            let record = row_data.as_row();
+            csv_writer.write_record(&record)?;
             buffer.clear();
             bar.set_position((file_i + 1) as u64);
             processed_file_count += 1;
