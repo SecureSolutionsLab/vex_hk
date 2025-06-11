@@ -9,10 +9,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::osv_schema::OSV;
 
-const TEMP_PATH_FOLDER: &str = "/zmnt";
+const TEMP_PATH_FOLDER: &str = "/zmnt/vex/";
 
-const TEMP_DIR_PATH_API_DATA_REVIEWED: &str =
-    concatcp!(TEMP_PATH_FOLDER, "/vex/api_data_download_reviewed");
+const TEMP_DOWNLOAD_FILE_PATH: &str = concatcp!(TEMP_PATH_FOLDER, "github_all_temp.zip");
+const TEMP_CSV_FILE_PATH_REVIEWED: &str = concatcp!(TEMP_PATH_FOLDER, "github_reviewed_temp.csv");
+const TEMP_CSV_FILE_PATH_UNREVIEWED: &str =
+    concatcp!(TEMP_PATH_FOLDER, "github_unreviewed_temp.csv");
+
+const FULL_DATA_URL: &str =
+    "https://github.com/github/advisory-database/archive/refs/heads/main.zip";
+
+// https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database
+// ids come in the format of GHSA-xxxx-xxxx-xxxx
+const GITHUB_ID_CHARACTERS: usize = 19;
 
 pub type OSVGitHubExtended = OSV<GitHubDatabaseSpecific>;
 
@@ -43,4 +52,15 @@ pub enum GithubSeverity {
     Moderate,
     High,
     Critical,
+}
+
+fn get_create_table_text(name: &str) -> String {
+    format!(
+        "CREATE TABLE \"{}\" (
+            \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
+            \"modified\" TIMESTAMPTZ NOT NULL,
+            \"data\" JSONB NOT NULL
+        );",
+        name
+    )
 }

@@ -1,15 +1,19 @@
-use std::{fs, io::{BufWriter, Write}, path::Path};
+use std::{
+    fmt::Display,
+    fs,
+    io::{BufWriter, Write},
+    path::Path,
+};
 
 use regex::Regex;
-use serde::Serialize;
-
-use crate::download::DownloadError;
 
 use super::api_response::GitHubAdvisoryAPIResponse;
 
 // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
 const URL_MATCH: &str = r"https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*)";
 
+// retrieve advisories from the api
+// https://docs.github.com/en/rest/security-advisories/global-advisories
 pub struct PaginatedGithubAdvisoriesDataIter<'a> {
     client: &'a reqwest::Client,
     header_next_pattern: Regex,
@@ -55,14 +59,10 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
     async fn next_page_data_perform_request(
         &mut self,
     ) -> Result<Vec<GitHubAdvisoryAPIResponse>, reqwest::Error> {
-        println!("{:#?}", self.request.try_clone().unwrap());
-
         let response = self
             .client
             .execute(self.request.try_clone().unwrap())
             .await?;
-
-        println!("{:#?}", response);
 
         let next_url_opt = if let Some(link_header) = response.headers().get("link") {
             self.header_next_pattern
@@ -99,8 +99,10 @@ pub enum GithubApiDownloadError {
     Io(#[from] std::io::Error),
     #[error("Reqwest HTTP Error: {0}")]
     Reqwest(#[from] reqwest::Error),
-    #[error("Failed to serialize data to json")]
+    #[error("Failed to serialize data to json:\n{0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("CSV error: {0}")]
+    Csv(#[from] csv::Error),
 }
 
 // "malware" unimplemented
@@ -126,8 +128,16 @@ impl GithubApiDownloadType {
     }
 }
 
+impl Display for GithubApiDownloadType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.api_str())
+    }
+}
 
-// save full files in directory
+// Download api data for advisories modified after a specific date
+// and save as files to a directory
+// Date includes the day the advisory was modified
+//      (so 7 july will include advisories modified in 7 of july)
 pub async fn download_and_save_api_data_after_update_date(
     client: &reqwest::Client,
     token: &str,
@@ -170,4 +180,47 @@ pub async fn download_and_save_api_data_after_update_date(
     }
 
     Ok((total_entries, i))
+}
+
+// Create a csv file that contains only names and publish dates
+// of advisories modified after a specific date (inclusive)
+//      (7 july will include advisories modified in 7 of july)
+// To be used for osv file retrieval
+pub async fn download_and_save_only_ids_after_update_date(
+    client: &reqwest::Client,
+    token: &str,
+    csv_save_path: &Path,
+    date: chrono::NaiveDate,
+    ty: GithubApiDownloadType,
+) -> Result<usize, GithubApiDownloadError> {
+    {
+        let parent = csv_save_path.parent().unwrap();
+        if !fs::exists(parent)? {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let mut csv_writer = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_save_path)?;
+
+    let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
+        client,
+        token,
+        &[
+            ("published", &date.format(">=%Y-%m-%d").to_string()),
+            ("type", ty.api_str()),
+        ],
+    )?;
+    let mut i = 0;
+    while let Some(next_page_res) = paginated_iter.next_page_data().await {
+        let next_page_data = next_page_res?;
+
+        for data in next_page_data {
+            csv_writer.write_record(&[data.ghsa_id, data.published_at.to_rfc3339()])?;
+        }
+
+        i += 1;
+    }
+
+    Ok(i)
 }

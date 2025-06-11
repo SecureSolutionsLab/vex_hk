@@ -11,23 +11,14 @@ use zip::ZipArchive;
 use crate::{
     db_api::consts::{GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME},
     download::download_and_save_to_file_in_chunks,
-    scrape_mod::github::OSVGitHubExtended,
 };
 
-const FULL_DATA_URL: &str =
-    "https://github.com/github/advisory-database/archive/refs/heads/main.zip";
+use super::{
+    OSVGitHubExtended, GITHUB_ID_CHARACTERS, TEMP_CSV_FILE_PATH_REVIEWED,
+    TEMP_CSV_FILE_PATH_UNREVIEWED, TEMP_DOWNLOAD_FILE_PATH, FULL_DATA_URL
+};
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
-
-const TIMESTAMP_FILE_NAME: &str = "last_timestamp_github";
-
-const TEMP_DOWNLOAD_FILE_PATH: &str = "/zmnt/github_all_temp.zip";
-const TEMP_CSV_FILE_PATH_REVIEWED: &str = "/zmnt/vex/github_reviewed_temp.csv";
-const TEMP_CSV_FILE_PATH_UNREVIEWED: &str = "/zmnt/vex/github_unreviewed_temp.csv";
-
-// https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database
-// ids come in the format of GHSA-xxxx-xxxx-xxxx
-const GITHUB_ID_CHARACTERS: usize = 19;
 
 pub async fn download_full(
     client: reqwest::Client,
@@ -39,42 +30,19 @@ pub async fn download_full(
     log::info!("Creating new Github Advisories tables for GitHub-reviewed and unreviewed advisories, with names \"{}\" and \"{}\"",
 GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME);
 
-    db_connection
-        .execute(
-            QueryBuilder::<Postgres>::new(format!(
-                "
-        DROP TABLE IF EXISTS \"{GITHUB_REVIEWED_TABLE_NAME}\";
-        DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
-        CREATE TABLE \"{GITHUB_REVIEWED_TABLE_NAME}\" (
-            \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
-            \"modified\" TIMESTAMPTZ NOT NULL,
-            \"data\" JSONB NOT NULL
-        );
-        CREATE TABLE \"{GITHUB_UNREVIEWED_TABLE_NAME}\" (
-            \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
-            \"modified\" TIMESTAMPTZ NOT NULL,
-            \"data\" JSONB NOT NULL
-        );",
-            ))
-            .build()
-            .sql(),
-        )
-        .await
-        .unwrap();
-
     log::info!("Starting a download a full copy of Github Advisory database.");
 
     let download_path = Path::new(TEMP_DOWNLOAD_FILE_PATH);
     let csv_path_reviewed = Path::new(TEMP_CSV_FILE_PATH_REVIEWED);
     let csv_path_unreviewed = Path::new(TEMP_CSV_FILE_PATH_UNREVIEWED);
 
-    // download_and_save_to_file_in_chunks(
-    //     client,
-    //     FULL_DATA_URL,
-    //     Path::new(TEMP_DOWNLOAD_FILE_PATH),
-    //     &pg_bars,
-    // )
-    // .await?;
+    download_and_save_to_file_in_chunks(
+        client,
+        FULL_DATA_URL,
+        Path::new(TEMP_DOWNLOAD_FILE_PATH),
+        &pg_bars,
+    )
+    .await?;
     let (row_count_reviewed, row_count_unreviewed) = create_csv(
         download_path,
         csv_path_reviewed,
@@ -82,6 +50,29 @@ GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME);
         pg_bars,
     )
     .await?;
+
+    let database_delete_start = Instant::now();
+    db_connection
+        .execute(
+            QueryBuilder::<Postgres>::new(format!(
+                "
+DROP TABLE IF EXISTS \"{GITHUB_REVIEWED_TABLE_NAME}\";
+DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
+{}
+{}
+        ",
+                super::get_create_table_text(GITHUB_REVIEWED_TABLE_NAME),
+                super::get_create_table_text(GITHUB_UNREVIEWED_TABLE_NAME),
+            ))
+            .build()
+            .sql(),
+        )
+        .await
+        .unwrap();
+    log::info!(
+        "Finished deleting old database. Time: {:?}",
+        database_delete_start.elapsed()
+    );
 
     println!("{} {}", row_count_reviewed, row_count_unreviewed);
     crate::open_and_send_csv_to_database_whole(
@@ -104,7 +95,9 @@ GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME);
         start.elapsed()
     );
 
-    //fs::remove_file(TEMP_FILE_PATH)?;
+    fs::remove_file(TEMP_DOWNLOAD_FILE_PATH)?;
+    fs::remove_file(TEMP_CSV_FILE_PATH_REVIEWED)?;
+    fs::remove_file(TEMP_CSV_FILE_PATH_UNREVIEWED)?;
     Ok(())
 }
 

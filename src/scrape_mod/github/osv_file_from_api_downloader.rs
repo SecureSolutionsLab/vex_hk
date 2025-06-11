@@ -1,6 +1,14 @@
-use crate::{download::DownloadError, scrape_mod::github::OSVGitHubExtended};
+use std::{path::Path, time::Instant};
 
-use super::{api_data_retriever::GithubApiDownloadType};
+use sqlx::{Execute, Executor, Postgres, QueryBuilder};
+
+use crate::{
+    db_api::consts::GITHUB_REVIEWED_TMP_UPDATE_TABLE_NAME,
+    download::DownloadError,
+    scrape_mod::github::{OSVGitHubExtended, GITHUB_ID_CHARACTERS},
+};
+
+use super::api_data_retriever::GithubApiDownloadType;
 
 // NOTE
 // Structured api for files and directories less than 1MB
@@ -75,9 +83,24 @@ pub async fn get_single_osv_file_data(
         .header(reqwest::header::ACCEPT, "application/vnd.github.raw+json")
         .build()?;
     let response = client.execute(request).await?;
-    let data = response
-        .json::<OSVGitHubExtended>()
-        .await
-        ?;
+    let data = response.json::<OSVGitHubExtended>().await?;
     Ok(data)
+}
+
+pub async fn read_ids_and_download_files_into_database(
+    db_connection: sqlx::Pool<sqlx::Postgres>,
+    pg_bars: &indicatif::MultiProgress,
+    client: &reqwest::Client,
+    token: &str,
+    id_csv_path: &Path,
+    ty: GithubApiDownloadType,
+) -> Result<(), DownloadError> {
+    let start = Instant::now();
+
+    // save to csv file first
+    // this should be able to happen in multiple function calls
+    // when csv is completely ok send it to database
+
+    todo!();
+    Ok(())
 }
