@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+#[cfg(feature = "osv")]
 use chrono::{DateTime, FixedOffset};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct NVDCve {
@@ -23,7 +23,6 @@ pub(crate) struct NVDCve {
 
     pub references: Vec<References>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Description {
@@ -162,6 +161,7 @@ pub struct References {
     tags: Vec<String>,
 }
 
+#[cfg(feature = "nvd")]
 #[derive(Deserialize, Debug)]
 pub(crate) struct NvdResponse {
     #[serde(rename = "totalResults")]
@@ -206,7 +206,6 @@ pub trait HasId {
     fn get_id(&self) -> &str;
 }
 
-
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq, Hash, Serialize)]
 pub struct ExploitDB {
     id: String,
@@ -225,7 +224,7 @@ pub struct ExploitDB {
     pub aliases: String,
     pub screenshot_url: String,
     pub application_url: String,
-    pub source_url: String
+    pub source_url: String,
 }
 
 impl HasId for ExploitDB {
@@ -234,8 +233,6 @@ impl HasId for ExploitDB {
     }
 }
 
-
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EPSS {
     pub cve: String,
@@ -243,7 +240,6 @@ pub struct EPSS {
     pub percentile: String,
     pub date: String,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OTX {
@@ -314,51 +310,7 @@ pub struct DatabaseSpecific {
     pub source: Option<String>,
 }
 
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct OSV {
-    pub schema_version: String,
-    pub id: String,
-    pub modified: String,
-    pub published: String,
-    #[serde(default)]
-    pub withdrawn: String,
-    #[serde(default)]
-    pub aliases: Vec<String>,
-    #[serde(default)]
-    pub related: Vec<String>,
-    #[serde(default)]
-    pub summary: String,
-    #[serde(default)]
-    pub details: String,
-    #[serde(default)]
-    pub severity: Vec<Severity>,
-    #[serde(default)]
-    pub affected: Vec<Affected>,
-    #[serde(default)]
-    pub references: Vec<Reference>,
-    #[serde(default)]
-    pub credits: Vec<Credit>,
-    #[serde(default)]
-    pub database_specific: Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Severity {
-    pub r#type: String,
-    pub score: String,
-}
-
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Credit {
-    pub name: String,
-    #[serde(default)]
-    pub contact: Vec<String>,
-    #[serde(default)]
-    pub r#type: String,
-}
-
+#[cfg(feature = "osv")]
 #[derive(Clone, Debug)]
 pub struct Sitemap {
     pub(crate) loc: String,

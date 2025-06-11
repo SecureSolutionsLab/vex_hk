@@ -41,7 +41,7 @@ use sqlx::{Error, Pool, Postgres};
 pub async fn execute_query_data<'q, T>(
     db: &Pool<Postgres>,
     sql_query: &'q str,
-    data: &'q Vec<T>,
+    data: &'q [T],
 ) -> Result<u64, Error>
 where
     T: sqlx::Type<Postgres>

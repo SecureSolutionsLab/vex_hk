@@ -26,3 +26,5 @@ Cargo.lock
 # Windows-specific files
 Thumbs.db
 
+/temp
+/tokens

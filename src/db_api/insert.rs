@@ -1,6 +1,7 @@
-use crate::scrape_mod::structs::{CPEMatch, FilteredCVE};
-use crate::db_api::db_connection::{get_db_connection};
-use crate::db_api::utils::execute_query_data;
+use crate::{
+    db_api::{db_connection::get_db_connection, utils::execute_query_data},
+    scrape_mod::structs::{CPEMatch, FilteredCVE},
+};
 use log::{error, info};
 use serde_json::json;
 use sqlx::{query, Error, PgPool};
@@ -54,7 +55,7 @@ pub async fn _insert_db_sequential<T: serde::Serialize>(
     );
     for value in &cve {
         let json_cve = json!(value);
-        let _ = match query(&*sql_query).bind(&json_cve).execute(&db).await {
+        let _ = match query(&sql_query).bind(&json_cve).execute(&db).await {
             Ok(result) => {
                 info!("Inserted CVE {:?}", result)
             }
@@ -109,17 +110,47 @@ pub async fn insert_parallel<T: serde::Serialize>(
     db_conn: &PgPool,
     table: &str,
     column: &str,
-    data: &Vec<T>,
+    data: &[T],
 ) -> Result<(), Error> {
     let sql_query = format!(
         "INSERT INTO {}({}) SELECT UNNEST($1::jsonb[])",
         table, column
     );
-    let mut submit_data = vec![];
-    for cve in data {
-        submit_data.push(json!(cve))
-    }
+    let submit_data: Vec<_> = data.iter().map(|cve| json!(cve)).collect();
     execute_query_data(db_conn, &sql_query, &submit_data).await?;
+    Ok(())
+}
+
+// same as insert_parallel but data is already json
+// todo: experimental
+pub async fn insert_parallel_json(
+    db_conn: &PgPool,
+    table: &str,
+    column: &str,
+    data: &[serde_json::Value],
+) -> Result<(), Error> {
+    let sql_query = format!(
+        "INSERT INTO {}({}) SELECT UNNEST($1::jsonb[])",
+        table, column
+    );
+    execute_query_data(db_conn, &sql_query, data).await?;
+    Ok(())
+}
+
+// same as above but insert json data already converted into strings
+// database should send back an error if json is badly converted
+// todo: experimental
+pub async fn insert_parallel_string_json(
+    db_conn: &PgPool,
+    table: &str,
+    column: &str,
+    data: &[&str],
+) -> Result<(), Error> {
+    let sql_query = format!(
+        "INSERT INTO {}({}) SELECT UNNEST($1::jsonb[])",
+        table, column
+    );
+    execute_query_data(db_conn, &sql_query, data).await?;
     Ok(())
 }
 
@@ -165,6 +196,8 @@ pub async fn insert_parallel<T: serde::Serialize>(
 ///
 /// # Limitations
 /// - Requires memory to store all data before insertion.
+// todo: nvd dependent (breaks compilation otherwise)
+#[cfg(feature = "nvd")]
 pub async fn insert_parallel_cve(
     db_conn: &PgPool,
     table: &str,

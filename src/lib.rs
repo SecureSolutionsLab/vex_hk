@@ -1,30 +1,59 @@
+use std::{
+    io::{BufRead, BufReader, Read},
+    path::Path,
+    process::{Command, Stdio},
+    time::Instant,
+};
+
+#[cfg(feature = "nvd")]
 use chrono::NaiveDate;
-
-use std::io::{BufRead, BufReader};
-use std::iter::once;
-
-use crate::db_api::consts::CVE_TABLE;
-use crate::db_api::db_connection::get_db;
-use crate::db_api::query_db::{count_table_entries, verify_database};
-use crate::scrape_mod::alienvault_scraper::alienvault_scraper;
-use crate::scrape_mod::exploitdb_scraper::exploitdb_scrape;
-use crate::scrape_mod::nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd};
-use crate::scrape_mod::osv_scraper::{scrape_osv, scrape_osv_update};
-use crate::utils::config::store_key;
-use crate::utils::time::{get_timestamp, instant_to_datetime};
+#[cfg(feature = "nvd")]
 use log::error;
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use scrape_mod::github;
+use sqlx::postgres::PgPoolCopyExt;
+#[cfg(feature = "nvd")]
+use std::{
+    iter::once,
+    time::{Duration, Instant},
+};
 
-//Verifies every hour
+#[cfg(feature = "nvd")]
+use crate::{
+    db_api::{
+        consts::CVE_TABLE,
+        db_connection::get_db,
+        query_db::{count_table_entries, verify_database},
+    },
+    utils::{
+        config::store_key,
+        time::{get_timestamp, instant_to_datetime},
+    },
+};
+
+#[cfg(feature = "alienvault")]
+use crate::scrape_mod::alienvault_scraper::alienvault_scraper;
+#[cfg(feature = "exploitdb")]
+use crate::scrape_mod::exploitdb_scraper::exploitdb_scrape;
+#[cfg(feature = "nvd")]
+use crate::scrape_mod::nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd};
+
+// Verifies every hour
+#[cfg(feature = "nvd")]
 const TIME_INTERVAL: u64 = 3600;
+#[cfg(feature = "nvd")]
 const EMPTY: i64 = 0;
 
+const GITHUB_TOKEN_LOCATION: &str = "./tokens/github";
+
 mod db_api;
-mod scrape_mod;
+mod download;
+pub mod scrape_mod;
 mod utils;
 
+mod osv_schema;
+// mod scaf_schema;
+
+#[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
     if let Err(e) = consts_checker() {
         eprintln!("Error: {}", e);
@@ -82,6 +111,7 @@ pub async fn _exploit_vulnerability_hunter() {
 
 /// Retrieves the exploits from NVD database (timestamp required for new additions and updates)
 /// Designed for performance, update removes the entry and adds the latest one
+#[cfg(feature = "nvd")]
 async fn nvd_scraper(timestamp: String) {
     let db_cve_total = count_table_entries(CVE_TABLE).await;
 
@@ -121,6 +151,7 @@ async fn nvd_scraper(timestamp: String) {
     }
 }
 
+#[cfg(feature = "exploitdb")]
 pub async fn _exploitdb_scraper() {
     match exploitdb_scrape().await {
         Ok(_) => {
@@ -132,11 +163,34 @@ pub async fn _exploitdb_scraper() {
     };
 }
 
-pub async fn osv_scraper() {
-    scrape_osv().await;
-    scrape_osv_update().await;
+#[cfg(feature = "osv")]
+pub async fn osv_scraper(pg_bars: &indicatif::MultiProgress) {
+    // todo: unhandled errors
+
+    use sqlx::Executor;
+
+    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+
+    let client = reqwest::Client::new();
+
+    scrape_mod::osv_scraper::scrape_osv_full(client, db_conn, pg_bars)
+        .await
+        .unwrap();
 }
 
+pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
+    use sqlx::Executor;
+
+    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+
+    let client = reqwest::Client::new();
+
+    scrape_mod::github::download_full(client, db_conn, &pg_bars)
+        .await
+        .unwrap();
+}
+
+#[cfg(feature = "alienvault")]
 pub async fn _alienvault_otx_scraper() {
     match alienvault_scraper().await {
         Ok(_) => {
@@ -149,6 +203,7 @@ pub async fn _alienvault_otx_scraper() {
 }
 
 pub fn exec_stream<P: AsRef<Path>>(binary: P, args: Vec<String>) {
+    // todo: probably must be waited
     let mut cmd = Command::new(binary.as_ref())
         .args(&args)
         .stdout(Stdio::piped())
@@ -181,6 +236,7 @@ pub fn exec_stream<P: AsRef<Path>>(binary: P, args: Vec<String>) {
     cmd.wait().unwrap();
 }
 
+// todo: ?
 fn _parse_bool(bool_string: &String) -> bool {
     if bool_string == "True" {
         return true;
@@ -188,6 +244,7 @@ fn _parse_bool(bool_string: &String) -> bool {
     false
 }
 
+#[cfg(feature = "nvd")]
 pub async fn year_nvd(year: &str, end_year: &str) {
     let instant = Instant::now();
     let start_year = parse_year(year);
@@ -230,9 +287,65 @@ pub async fn year_nvd(year: &str, end_year: &str) {
     println!("manual exec {:.2?}", instant.elapsed());
 }
 
+#[cfg(feature = "nvd")]
 fn parse_year(year: &str) -> i32 {
     year.parse::<i32>().unwrap_or_else(|_| {
         error!("Failed to parse year: '{}'", year);
         0
     })
+}
+
+async fn open_and_send_csv_to_database_whole(
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    file_path: &Path,
+    table_name: &str,
+    expected_rows_count: usize,
+) -> Result<(), sqlx::Error> {
+    log::info!(
+        "Opening {:?} and sending whole to database, table name: {}",
+        file_path,
+        table_name
+    );
+    let processing_start = Instant::now();
+    let mut copy_conn = db_connection
+        .copy_in_raw(&format!(
+            "COPY \"{}\" FROM STDIN (FORMAT csv, DELIMITER ',')",
+            table_name
+        ))
+        .await?;
+
+    let file = tokio::fs::File::open(file_path).await?;
+
+    copy_conn.read_from(file).await?;
+
+    let result = copy_conn.finish().await?;
+    assert_eq!(result as usize, expected_rows_count);
+
+    log::info!("Finished sending CSV in {:?}", processing_start.elapsed());
+
+    Ok(())
+}
+
+// todo
+pub async fn update_github(
+    pg_bars: &indicatif::MultiProgress,
+) -> Result<github::GithubOsvUpdate, github::GithubApiDownloadError> {
+    let token = {
+        let mut buf = String::new();
+        let mut file = std::fs::File::open(GITHUB_TOKEN_LOCATION).unwrap();
+        file.read_to_string(&mut buf).unwrap();
+        buf
+    };
+    let client = reqwest::Client::new();
+    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+
+    github::read_ids_and_download_files_into_database(
+        db_conn,
+        pg_bars,
+        &client,
+        &token,
+        chrono::NaiveDate::from_ymd_opt(2025, 5, 1).unwrap(), // todo
+        github::GithubApiDownloadType::Reviewed,
+    )
+    .await
 }

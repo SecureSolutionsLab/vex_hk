@@ -1,32 +1,36 @@
-use crate::db_api::consts::{ID, OSV_COLUMN, OSV_TABLE};
-use crate::db_api::db_connection::get_db_connection;
-use crate::db_api::delete::remove_entries_id;
-use crate::db_api::insert::insert_parallel;
-use crate::db_api::query_db::find_missing_or_stale_entries_by_id;
-use crate::db_api::structs::{EntryInput, EntryStatus};
-use crate::scrape_mod::consts::{OSV_BATCH_SIZE, OSV_INDEX, OSV_TIMESTAMP, TOTAL_THREADS};
-use crate::scrape_mod::structs::{Sitemap, OSV};
-use crate::utils::config::{read_key, store_key};
 use chrono::{DateTime, FixedOffset, Utc};
 use log::{error, info};
-use quick_xml::events::Event;
-use quick_xml::{name, Reader};
+use quick_xml::{events::Event, Reader};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use std::cmp::min;
-use std::collections::HashMap;
-use std::error::Error;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::{fs, thread};
+use sqlx::{Execute, Executor, Postgres, QueryBuilder};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fs::{self, File},
+    io::Read,
+    path::Path,
+    time::{Duration, Instant},
+};
 use thiserror::Error;
-use tokio::sync::Mutex;
 use tokio::time::sleep;
 use zip::ZipArchive;
 
+use crate::{
+    db_api::{
+        consts::{ID, OSV_DATA_COLUMN_NAME, OSV_TABLE_NAME},
+        db_connection::get_db_connection,
+        delete::remove_entries_id,
+        insert::insert_parallel,
+        query_db::find_missing_or_stale_entries_by_id,
+        structs::{EntryInput, EntryStatus},
+    },
+    download::download_and_save_to_file_in_chunks,
+    osv_schema::OSVGeneralized,
+    scrape_mod::{csv_conversion::OsvCsvRow, structs::Sitemap},
+    utils::config::{read_key, store_key},
+};
 
 /// Custom error type for `fetch_osv_details`.
 #[derive(Error, Debug)]
@@ -44,195 +48,186 @@ pub enum ParseError {
     MissingJsonUrl,
 }
 
-/// Downloads the OSV ZIP archive, processes its JSON files concurrently, and inserts the parsed OSV records
-/// into the database in batches. After processing, the OSV timestamp is updated and the local archive file is removed.
+const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
+
+const INDEX: &str = "https://osv.dev/sitemap_index.xml";
+const FULL_DATA_URL: &str = "https://storage.googleapis.com/osv-vulnerabilities/all.zip";
+
+const TIMESTAMP_FILE_NAME: &str = "last_timestamp_osv";
+
+const TEMP_DOWNLOAD_FILE_PATH: &str = "/zmnt/osv_all_temp.zip";
+const TEMP_CSV_FILE_PATH: &str = "/zmnt/vex/osv_temp.csv";
+
+// example id: ALBA-2019:0973
+// the specification does not specify a max character limit for the value of an id
+// some of these can get quite big (ex. BIT-grafana-image-renderer-2022-31176)
+const OSV_ID_MAX_CHARACTERS: usize = 48;
+
+/// Downloads whole OSV ZIP archive data and stores all separate records to a database.
+/// A OSV timestamp is then created to aid in future partial updates.
 ///
-/// # Overview
-///
-/// 1. **Download:**
-///    Downloads the ZIP archive from a remote URL and saves it locally as `"all.zip"`.
-///
-/// 2. **Processing:**
-///    Opens the ZIP archive and processes its JSON files concurrently. The archive is divided among multiple tasks,
-///    where each task:
-///      - Obtains a database connection.
-///      - Reads its assigned range of files while holding a lock only during file access.
-///      - Parses JSON files into `OSV` records and accumulates them into batches.
-///      - Inserts a batch of records into the database using `insert_parallel` once a certain chunk size is reached.
-///
-/// 3. **Finalization:**
-///    After all tasks complete:
-///      - The OSV timestamp is updated to today's date at midnight (UTC) in RFC3339 format using `store_key`.
-///      - The local ZIP file is removed.
-///
-/// # Returns
-///
-/// * `Ok(())` if the entire process completes successfully.
-/// * An error of type `Box<dyn std::error::Error>` if any step fails (e.g. network, I/O, parsing, or database errors).
-///
-/// # Errors
-///
-/// This function uses the `?` operator to propagate errors encountered during:
-/// - Downloading the ZIP file.
-/// - Writing to or reading from the file system.
-/// - Extracting the ZIP archive.
-/// - Parsing JSON records.
-/// - Database insertion operations.
-///
-/// # Dependencies
-///
-/// This function relies on the following crates:
-/// - `reqwest` for HTTP requests.
-/// - `zip` for ZIP archive handling.
-/// - `chrono` for date and time manipulation.
-/// - `tokio` for asynchronous runtime and synchronization primitives.
-/// - `sqlx` (assumed) for database operations.
-/// - `log` for logging.
-/// ONLY RUNS ONCE TO RETRIEVE THE COMPLETE DATABASE
-pub async fn scrape_osv() -> Result<(), Box<dyn std::error::Error>> {
-    // Start the overall timer.
+/// This function should only run if the local database is empty or very outdated
+// todo: needs testing, urls may return errors
+pub async fn scrape_osv_full(
+    client: reqwest::Client,
+    db_connection: sqlx::Pool<sqlx::Postgres>,
+    pg_bars: &indicatif::MultiProgress,
+) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
-    let file_path = "all.zip";
-    let url = "https://storage.googleapis.com/osv-vulnerabilities/all.zip";
 
-    // Download the ZIP archive.
-    info!("Downloading file from {}...", url);
-    let response = reqwest::get(url).await?;
-    let bytes = response.bytes().await?;
-    info!("Download complete.");
+    info!("Starting full OSV database download.");
 
-    // Save the downloaded bytes to a local file.
-    {
-        let mut file = File::create(file_path)?;
-        file.write_all(&bytes)?;
-    }
-    info!("File saved locally as: {}", file_path);
-    info!("Download time: {:?}", start.elapsed());
+    let download_path = Path::new(TEMP_DOWNLOAD_FILE_PATH);
+    let csv_path = Path::new(TEMP_CSV_FILE_PATH);
 
-    // Start processing timer.
+    download_and_save_to_file_in_chunks(
+        client,
+        FULL_DATA_URL,
+        Path::new(TEMP_DOWNLOAD_FILE_PATH),
+        &pg_bars,
+    )
+    .await?;
+
+    log::info!("Recreating database table.");
+    let database_delete_start = Instant::now();
+    db_connection
+        .execute(
+            QueryBuilder::<Postgres>::new(format!(
+                "
+        DROP TABLE IF EXISTS \"{OSV_TABLE_NAME}\";
+        CREATE TABLE \"{OSV_TABLE_NAME}\" (
+            \"id\" character varying({OSV_ID_MAX_CHARACTERS}) PRIMARY KEY,
+            \"published\" TIMESTAMPTZ NOT NULL,
+            \"modified\" TIMESTAMPTZ NOT NULL,
+            \"{OSV_DATA_COLUMN_NAME}\" JSONB NOT NULL
+        );",
+            ))
+            .build()
+            .sql(),
+        )
+        .await
+        .unwrap();
+    info!("Creating a new OSV table with name \"{OSV_TABLE_NAME}\" and data column \"{OSV_DATA_COLUMN_NAME}\"");
+    log::info!(
+        "Finished recreating database table. Time: {:?}",
+        database_delete_start.elapsed()
+    );
+
+    let row_count = create_csv(download_path, csv_path, pg_bars).await?;
+    crate::open_and_send_csv_to_database_whole(&db_connection, csv_path, OSV_TABLE_NAME, row_count)
+        .await?;
+    // update_osv_timestamp()?;
+
+    info!(
+        "Finished downloading and parsing the full OSV database. Total time: {:?}",
+        start.elapsed()
+    );
+
+    fs::remove_file(TEMP_CSV_FILE_PATH)?;
+    fs::remove_file(TEMP_DOWNLOAD_FILE_PATH)?;
+    Ok(())
+}
+
+pub async fn create_csv(
+    download: &Path,
+    csv: &Path,
+    pg_bars: &indicatif::MultiProgress,
+) -> Result<usize, Box<dyn std::error::Error>> {
     let processing_start = Instant::now();
 
-    // Open the ZIP archive and wrap it in an Arc+Mutex for concurrent access.
-    let file = File::open(file_path)?;
-    let archive = Arc::new(Mutex::new(ZipArchive::new(file)?));
+    let download_file = File::open(download)?;
+    let mut archive = ZipArchive::new(download_file)?;
 
-    // Get the total number of files in the archive.
-    let total_files = {
-        let archive = archive.lock().await;
-        archive.len()
-    };
-    info!("Total number of files in archive: {}", total_files);
+    log::info!(
+        "About to process and convert {} files to csv. File created at {:?}",
+        archive.len(),
+        csv
+    );
 
-    // Calculate the batch size for each task (ceiling division).
-    let batch_size = (total_files + TOTAL_THREADS as usize - 1) / TOTAL_THREADS as usize;
-    // Number of OSV records to accumulate before insertion.
+    let bar = pg_bars.add(indicatif::ProgressBar::new(archive.len() as u64));
 
-    // Create a vector to hold our asynchronous tasks.
-    let mut tasks = Vec::with_capacity(TOTAL_THREADS as usize);
-
-    // Spawn tasks to process different parts of the archive concurrently.
-    for task_id in 0..TOTAL_THREADS as usize {
-        let archive_clone = Arc::clone(&archive);
-        let start_index = task_id * batch_size;
-        let end_index = min(start_index + batch_size, total_files);
-
-        let task = tokio::spawn(async move {
-            info!(
-                "Task {} processing files {} to {}",
-                task_id,
-                start_index,
-                end_index - 1
-            );
-
-            // Get a database connection for this task.
-            let db_conn = match get_db_connection().await {
-                Ok(conn) => conn,
-                Err(e) => {
-                    error!("Task {}: Error obtaining DB connection: {}", task_id, e);
-                    return;
-                }
-            };
-
-            let mut batch_results = Vec::with_capacity(OSV_BATCH_SIZE);
-
-            for i in start_index..end_index {
-                // Acquire the lock only while reading a single file.
-                {
-                    let mut archive = archive_clone.lock().await;
-                    let mut file = match archive.by_index(i) {
-                        Ok(file) => file,
-                        Err(err) => {
-                            error!(
-                                "Task {}: Error retrieving file at index {}: {:?}",
-                                task_id, i, err
-                            );
-                            continue;
-                        }
-                    };
-
-                    let file_name = file.name().to_string();
-                    // Process only JSON files.
-                    if file_name.ends_with(".json") {
-                        let mut json_content = String::new();
-                        if let Err(err) = file.read_to_string(&mut json_content) {
-                            error!(
-                                "Task {}: Error reading file {}: {:?}",
-                                task_id, file_name, err
-                            );
-                        } else if let Ok(osv_record) = serde_json::from_str::<OSV>(&json_content) {
-                            batch_results.push(osv_record);
-                        } else {
-                            error!(
-                                "Task {}: Error parsing JSON from file {}",
-                                task_id, file_name
-                            );
-                        }
-                    }
-                } // Release the lock immediately.
-
-                // Insert a batch if the chunk size is reached.
-                if batch_results.len() >= OSV_BATCH_SIZE {
-                    if let Err(err) =
-                        insert_parallel(&db_conn, OSV_TABLE, OSV_COLUMN, &batch_results).await
-                    {
-                        error!("Task {}: Error inserting batch: {:?}", task_id, err);
-                    }
-                    batch_results.clear();
-                }
-            }
-
-            // Insert any remaining records.
-            if !batch_results.is_empty() {
-                if let Err(err) =
-                    insert_parallel(&db_conn, OSV_TABLE, OSV_COLUMN, &batch_results).await
-                {
-                    error!("Task {}: Error inserting final batch: {:?}", task_id, err);
-                }
-            }
-        });
-
-        tasks.push(task);
+    let parent = csv.parent().unwrap();
+    if !fs::exists(parent)? {
+        fs::create_dir_all(parent)?;
     }
+    let mut csv_writer = csv::WriterBuilder::new()
+        .buffer_capacity(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE)
+        .has_headers(false)
+        .from_path(csv)?;
 
-    // Wait for all tasks to complete.
-    for handle in tasks {
-        if let Err(err) = handle.await {
-            error!("A task failed: {:?}", err);
+    let mut buffer: String = String::with_capacity(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE);
+    let mut processed_file_count = 0;
+    for file_i in 0..archive.len() {
+        let mut file = archive.by_index(file_i)?;
+
+        // skip any non .json files
+        if file.name().ends_with(".json") {
+            let file_size = file.size() as usize;
+
+            if file_size > FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE {
+                // buffer gets resized later automatically
+                log::warn!(
+                    "File \"{}\" with size {} is bigger than available buffer size ({})",
+                    file.name(),
+                    human_bytes::human_bytes(file.size() as f64),
+                    human_bytes::human_bytes(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE as f64)
+                );
+            }
+
+            let osv_record = {
+                // faster than using serde_json::from_reader and BufReader
+                file.read_to_string(&mut buffer)?;
+                let res = serde_json::from_str::<OSVGeneralized>(&buffer);
+                // todo: update to panic better
+                // error probably because the schema updated
+                let res_ok = match res {
+                    Ok(v) => v,
+                    Err(err) => {
+                        log::error!("{}", &buffer);
+                        panic!("{}: {}", file_i, err);
+                    }
+                };
+                res_ok
+            };
+            let id = &osv_record.id;
+            if id.len() > OSV_ID_MAX_CHARACTERS {
+                if id.chars().count() > OSV_ID_MAX_CHARACTERS {
+                    panic!(
+                        "ID {} has more characters ({}) than the maximum set to the database ({})",
+                        id,
+                        id.chars().count(),
+                        OSV_ID_MAX_CHARACTERS
+                    );
+                }
+            }
+
+            let row_data = OsvCsvRow::from_osv(osv_record);
+            let record = row_data.as_row();
+            csv_writer.write_record(&record)?;
+            buffer.clear();
+            bar.set_position((file_i + 1) as u64);
+            processed_file_count += 1;
         }
     }
 
-    info!("Total processing time: {:?}", processing_start.elapsed());
+    csv_writer.flush()?;
 
-    // Update the OSV timestamp to today's date at midnight (UTC) in RFC3339 format.
+    bar.finish();
+    pg_bars.remove(&bar);
+    log::info!(
+        "Finished. Total processing time: {:?}",
+        processing_start.elapsed()
+    );
+
+    Ok(processed_file_count)
+}
+
+/// OSV timestamp is updated to today's date at midnight (UTC) in RFC3339 format using `store_key`.
+pub fn update_osv_timestamp() -> Result<(), String> {
     let today = Utc::now().date_naive();
-    let midnight = today
-        .and_hms_opt(0, 0, 0)
-        .ok_or("Failed to construct midnight timestamp")?;
+    let midnight = today.and_hms_opt(0, 0, 0).unwrap();
     let rfc3339_midnight = midnight.and_utc().to_rfc3339();
-    store_key(OSV_TIMESTAMP.to_string(), rfc3339_midnight);
-
-    // Remove the local ZIP file.
-    fs::remove_file(file_path)?;
+    store_key(TIMESTAMP_FILE_NAME.to_string(), rfc3339_midnight);
     Ok(())
 }
 
@@ -276,14 +271,14 @@ pub async fn scrape_osv() -> Result<(), Box<dyn std::error::Error>> {
 /// - Fetching and parsing updated OSV data.
 pub async fn scrape_osv_update() -> Result<(), Box<dyn std::error::Error>> {
     // Load the stored OSV timestamp.
-    let load_osv_timestamp = read_key(OSV_TIMESTAMP.to_string())
-        .ok_or_else(|| format!("OSV timestamp not found for key {}", OSV_TIMESTAMP))?;
+    let load_osv_timestamp = read_key(TIMESTAMP_FILE_NAME.to_string())
+        .ok_or_else(|| format!("OSV timestamp not found for key {}", TIMESTAMP_FILE_NAME))?;
     info!("Loading OSV timestamp: {}", load_osv_timestamp);
     let osv_timestamp = DateTime::parse_from_rfc3339(load_osv_timestamp.as_str())?;
     info!("Using OSV timestamp: {}", osv_timestamp);
 
     // Parse the OSV index and filter ecosystem sitemaps newer than the stored timestamp.
-    let ecosystems = match sitemap_parse(OSV_INDEX, osv_timestamp).await {
+    let ecosystems = match sitemap_parse(INDEX, osv_timestamp).await {
         Ok(ecosystems) => ecosystems,
         Err(e) => {
             error!("Error in retrieving ecosystems {}", e);
@@ -324,9 +319,13 @@ pub async fn scrape_osv_update() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_value(entry_inputs).expect("Failed to serialize entries to JSON");
 
     // Query the database for entries that are missing or stale.
-    let missing_ids: Vec<EntryStatus> =
-        find_missing_or_stale_entries_by_id(&db_conn, OSV_TABLE, OSV_COLUMN, entry_inputs_json)
-            .await?;
+    let missing_ids: Vec<EntryStatus> = find_missing_or_stale_entries_by_id(
+        &db_conn,
+        OSV_TABLE_NAME,
+        OSV_DATA_COLUMN_NAME,
+        entry_inputs_json,
+    )
+    .await?;
     info!("Found {} entries needing update", missing_ids.len());
 
     let mut osvs = Vec::new();
@@ -360,11 +359,11 @@ pub async fn scrape_osv_update() -> Result<(), Box<dyn std::error::Error>> {
     // Remove outdated records if necessary.
     if !remove.is_empty() {
         info!("Removing {} outdated items", remove.len());
-        remove_entries_id(&db_conn, OSV_TABLE, OSV_COLUMN, ID, &remove).await?;
+        remove_entries_id(&db_conn, OSV_TABLE_NAME, OSV_DATA_COLUMN_NAME, ID, &remove).await?;
     }
 
     // Insert the updated OSV records into the database.
-    insert_parallel(&db_conn, OSV_TABLE, OSV_COLUMN, &osvs).await?;
+    insert_parallel(&db_conn, OSV_TABLE_NAME, OSV_DATA_COLUMN_NAME, &osvs).await?;
 
     Ok(())
 }
@@ -605,8 +604,6 @@ fn extract_title(url: &str) -> Option<&str> {
     url.rsplit('/').find(|segment| !segment.is_empty())
 }
 
-
-
 /// Asynchronously fetches an HTML page from the given URL, extracts a JSON data URL from it,
 /// fetches the JSON from that URL, and deserializes it into an `OSV` struct.
 ///
@@ -618,7 +615,7 @@ fn extract_title(url: &str) -> Option<&str> {
 ///
 /// * `Ok(OSV)` if the JSON data is successfully fetched and parsed.
 /// * `Err(ParseError)` if any error occurs during the process (HTTP, HTML parsing, or JSON deserialization).
-async fn fetch_osv_details(url: &str) -> Result<OSV, ParseError> {
+async fn fetch_osv_details(url: &str) -> Result<OSVGeneralized, ParseError> {
     info!("Fetching HTML from: {}", url);
     let client = Client::new();
 
@@ -660,6 +657,6 @@ async fn fetch_osv_details(url: &str) -> Result<OSV, ParseError> {
     let json_text = json_response.text().await?;
 
     // Deserialize the JSON into the OSV struct.
-    let osv: OSV = serde_json::from_str(&json_text)?;
+    let osv: OSVGeneralized = serde_json::from_str(&json_text)?;
     Ok(osv)
 }

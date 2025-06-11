@@ -1,4 +1,5 @@
 use chrono::Utc;
+
 use crate::utils::config::{read_key, store_key};
 
 /// Retrieves the timestamp for the last scrape from the configuration file.
@@ -42,7 +43,6 @@ pub fn get_timestamp() -> String {
     timestamp
 }
 
-
 /// Converts the current time to a datetime string.
 ///
 /// This function generates a timestamp representing the current time in the format
@@ -77,4 +77,3 @@ pub fn instant_to_datetime() -> String {
     let formatted_date = current_time.format("%Y-%m-%dT%H:%M:%S%.3fZ");
     formatted_date.to_string()
 }
-

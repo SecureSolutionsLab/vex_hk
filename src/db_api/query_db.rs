@@ -1,10 +1,12 @@
-use std::fmt::Debug;
-use crate::db_api::db_connection::get_db_connection;
 use log::{error, info};
-use sqlx::{query, Error, PgPool, Row};
-use std::time::Instant;
 use serde_json::Value;
-use sqlx::postgres::PgRow;
+use sqlx::{postgres::PgRow, query, Error, PgPool, Row};
+use std::fmt::Debug;
+
+#[cfg(feature = "nvd")]
+use std::time::Instant;
+
+use crate::db_api::db_connection::get_db_connection;
 
 /// Counts the total number of entries in the given database table.
 ///
@@ -169,6 +171,7 @@ pub async fn _verify_cve_db(id: &str) -> bool {
 /// # Performance
 /// This function may take considerable time for large datasets, as it involves
 /// grouping and counting operations on the entire `cves` table.
+#[cfg(feature = "nvd")]
 pub async fn verify_database() -> usize {
     let instant = Instant::now();
     let db = match get_db_connection().await {
@@ -189,7 +192,6 @@ pub async fn verify_database() -> usize {
     );
     query.len()
 }
-
 
 /// Compares input entries (provided as JSON data) with records in the specified table and column,
 /// returning the status of each entry in a generic row type.
