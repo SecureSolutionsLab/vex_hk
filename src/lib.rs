@@ -9,7 +9,6 @@ use std::{
 use chrono::NaiveDate;
 #[cfg(feature = "nvd")]
 use log::error;
-use scrape_mod::github;
 use sqlx::postgres::PgPoolCopyExt;
 #[cfg(feature = "nvd")]
 use std::{
@@ -50,8 +49,12 @@ mod download;
 pub mod scrape_mod;
 mod utils;
 
+mod github;
+
 mod osv_schema;
 // mod scaf_schema;
+
+pub use github::update_github;
 
 #[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
@@ -324,28 +327,4 @@ async fn open_and_send_csv_to_database_whole(
     log::info!("Finished sending CSV in {:?}", processing_start.elapsed());
 
     Ok(())
-}
-
-// todo
-pub async fn update_github(
-    pg_bars: &indicatif::MultiProgress,
-) -> Result<github::GithubOsvUpdate, github::GithubApiDownloadError> {
-    let token = {
-        let mut buf = String::new();
-        let mut file = std::fs::File::open(GITHUB_TOKEN_LOCATION).unwrap();
-        file.read_to_string(&mut buf).unwrap();
-        buf
-    };
-    let client = reqwest::Client::new();
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
-
-    github::read_ids_and_download_files_into_database(
-        db_conn,
-        pg_bars,
-        &client,
-        &token,
-        chrono::NaiveDate::from_ymd_opt(2025, 5, 1).unwrap(), // todo
-        github::GithubApiDownloadType::Reviewed,
-    )
-    .await
 }

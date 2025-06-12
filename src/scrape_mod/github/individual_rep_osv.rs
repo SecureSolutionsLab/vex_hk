@@ -8,7 +8,7 @@ use crate::{
     scrape_mod::{
         csv_conversion::OsvCsvRow,
         github::{
-            api_data_retriever::get_only_essential_after_modified_date, OSVGitHubExtended,
+            rest_api::get_only_essential_after_modified_date, OSVGitHubExtended,
             MIN_TIME_BETWEEN_REQUESTS,
         },
     },

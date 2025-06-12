@@ -1,15 +1,18 @@
-pub mod api_data_retriever;
 pub mod api_response;
-mod full_data;
-mod osv_file_from_api_downloader;
+mod individual_rep_osv;
+mod repository;
+mod rest_api;
+
+pub use individual_rep_osv::{read_ids_and_download_files_into_database, GithubOsvUpdate};
+pub use repository::download_full;
+pub use rest_api::{
+    download_and_save_api_data_after_update_date, get_only_essential_after_modified_date,
+    PaginatedGithubAdvisoriesDataIter,
+};
 
 use std::{fmt::Display, time::Duration};
 
 use const_format::concatcp;
-pub use full_data::download_full;
-pub use osv_file_from_api_downloader::{
-    read_ids_and_download_files_into_database, GithubOsvUpdate,
-};
 use serde::{Deserialize, Serialize};
 
 use crate::{download::DownloadError, osv_schema::OSV};

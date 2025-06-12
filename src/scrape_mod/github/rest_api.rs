@@ -1,11 +1,5 @@
-use std::{
-    fmt::Display,
-    fs,
-    io::{BufWriter, Write},
-    path::Path,
-};
+use std::{fs, io::Write, path::Path};
 
-use chrono::{DateTime, Utc};
 use regex::Regex;
 
 use crate::osv_schema::OsvEssentials;

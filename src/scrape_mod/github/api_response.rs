@@ -1,7 +1,5 @@
 use chrono::{DateTime, Utc};
 
-use super::OSVGitHubExtended;
-
 pub type GitHubAdvisoryAPIResponses = Vec<GitHubAdvisoryAPIResponse>;
 
 // https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
