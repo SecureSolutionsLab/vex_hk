@@ -4,9 +4,7 @@ use regex::Regex;
 
 use crate::osv_schema::OsvEssentials;
 
-use super::{
-    api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubApiDownloadType, API_URL,
-};
+use super::{api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubType, API_URL};
 
 // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
 const URL_MATCH: &str = r"https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*)";
@@ -113,7 +111,7 @@ pub async fn api_data_after_update_date_paginated_json_files(
     token: &str,
     save_dir_path: &Path,
     date: chrono::NaiveDate,
-    ty: GithubApiDownloadType,
+    ty: GithubType,
 ) -> Result<(usize, usize), GithubApiDownloadError> {
     {
         if !fs::exists(save_dir_path)? {
@@ -164,7 +162,7 @@ pub async fn api_data_after_update_date_single_csv_file(
     token: &str,
     csv_file_path: &Path,
     date: chrono::NaiveDate,
-    ty: GithubApiDownloadType,
+    ty: GithubType,
 ) -> Result<usize, GithubApiDownloadError> {
     let processing_start = Instant::now();
     {
@@ -213,7 +211,7 @@ pub async fn get_only_essential_after_modified_date(
     client: &reqwest::Client,
     token: &str,
     date: chrono::NaiveDate,
-    ty: GithubApiDownloadType,
+    ty: GithubType,
 ) -> Result<Vec<OsvEssentials>, GithubApiDownloadError> {
     let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
         client,

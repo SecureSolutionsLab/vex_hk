@@ -15,10 +15,17 @@ pub mod rest_api;
 
 use std::{fmt::Display, time::Duration};
 
-use const_format::concatcp;
+use const_format::{concatcp, formatcp};
 use serde::{Deserialize, Serialize};
 
-use crate::{download::DownloadError, osv_schema::OSV};
+use crate::{
+    consts::{
+        GITHUB_API_REVIEWED_TABLE_NAME, GITHUB_API_UNREVIEWED_TABLE_NAME,
+        GITHUB_OSV_REVIEWED_TABLE_NAME, GITHUB_OSV_UNREVIEWED_TABLE_NAME,
+    },
+    download::DownloadError,
+    osv_schema::OSV,
+};
 
 /// Location of the directory / folder where temporary files are created. This can get quite big depending on operations.
 pub const TEMP_PATH_DIR: &str = "/zmnt/vex/";
@@ -47,6 +54,8 @@ const GITHUB_ID_CHARACTERS: usize = 19;
 
 // max 900 request per minute (60 / 900)
 const MIN_TIME_BETWEEN_REQUESTS: Duration = Duration::new(0, 66666667);
+
+const API_REQUESTS_LIMIT: usize = 5000;
 
 pub type OSVGitHubExtended = OSV<GitHubDatabaseSpecific>;
 
@@ -81,12 +90,12 @@ pub enum GithubSeverity {
 
 // "malware" unimplemented
 #[derive(Clone, Copy)]
-pub enum GithubApiDownloadType {
+pub enum GithubType {
     Reviewed,
     Unreviewed,
 }
 
-impl GithubApiDownloadType {
+impl GithubType {
     pub fn api_str(self) -> &'static str {
         match self {
             Self::Reviewed => "reviewed",
@@ -114,9 +123,49 @@ impl GithubApiDownloadType {
             Self::Unreviewed => TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED,
         }
     }
+
+    pub const fn osv_table_name(self) -> &'static str {
+        match self {
+            Self::Reviewed => GITHUB_OSV_REVIEWED_TABLE_NAME,
+            Self::Unreviewed => GITHUB_OSV_UNREVIEWED_TABLE_NAME,
+        }
+    }
+
+    pub const fn api_table_name(self) -> &'static str {
+        match self {
+            Self::Reviewed => GITHUB_API_REVIEWED_TABLE_NAME,
+            Self::Unreviewed => GITHUB_API_UNREVIEWED_TABLE_NAME,
+        }
+    }
+
+    pub const fn create_table_sql_text(self) -> &'static str {
+        // working with consts makes this really finicky
+        // if attempting to update, take care to not mess up formatcp arguments
+        // WARNING: do not change without checking how CSV data is loaded.
+        match self {
+            Self::Reviewed => formatcp!(
+                "CREATE TABLE \"{}\" (
+                    \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
+                    \"published\" TIMESTAMPTZ NOT NULL,
+                    \"modified\" TIMESTAMPTZ NOT NULL,
+                    \"data\" JSONB NOT NULL
+                );",
+                GITHUB_API_REVIEWED_TABLE_NAME
+            ),
+            Self::Unreviewed => formatcp!(
+                "CREATE TABLE \"{}\" (
+                    \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
+                    \"published\" TIMESTAMPTZ NOT NULL,
+                    \"modified\" TIMESTAMPTZ NOT NULL,
+                    \"data\" JSONB NOT NULL
+                );",
+                GITHUB_API_UNREVIEWED_TABLE_NAME
+            ),
+        }
+    }
 }
 
-impl Display for GithubApiDownloadType {
+impl Display for GithubType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.api_str())
     }
@@ -141,17 +190,4 @@ impl From<DownloadError> for GithubApiDownloadError {
             DownloadError::Reqwest(v) => Self::Reqwest(v),
         }
     }
-}
-
-// WARNING: do not change without checking how CSV data is loaded.
-fn get_create_table_text(name: &str) -> String {
-    format!(
-        "CREATE TABLE \"{}\" (
-            \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
-            \"published\" TIMESTAMPTZ NOT NULL,
-            \"modified\" TIMESTAMPTZ NOT NULL,
-            \"data\" JSONB NOT NULL
-        );",
-        name
-    )
 }

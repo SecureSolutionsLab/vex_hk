@@ -36,6 +36,8 @@ use crate::scrape_mod::exploitdb_scraper::exploitdb_scrape;
 #[cfg(feature = "nvd")]
 use crate::scrape_mod::nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd};
 
+pub use db_api::{get_db, get_db_connection};
+
 // Verifies every hour
 #[cfg(feature = "nvd")]
 const TIME_INTERVAL: u64 = 3600;
@@ -179,23 +181,23 @@ pub async fn osv_scraper(pg_bars: &indicatif::MultiProgress) {
 
     let client = reqwest::Client::new();
 
-    scrape_mod::osv_scraper::scrape_osv_full(client, db_conn, pg_bars)
+    scrape_mod::osv_scraper::scrape_osv_full(&client, db_conn, pg_bars, true)
         .await
         .unwrap();
 }
 
 // todo: this kind of sucks
-pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
-    use sqlx::Executor;
+// pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
+//     use sqlx::Executor;
 
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+//     let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
 
-    let client = reqwest::Client::new();
+//     let client = reqwest::Client::new();
 
-    scrape_mod::github::repository::download_osv_full(client, db_conn, &pg_bars)
-        .await
-        .unwrap();
-}
+//     scrape_mod::github::repository::download_osv_full(client, db_conn, &pg_bars)
+//         .await
+//         .unwrap();
+// }
 
 #[cfg(feature = "alienvault")]
 pub async fn _alienvault_otx_scraper() {

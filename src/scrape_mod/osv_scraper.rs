@@ -18,7 +18,7 @@ use tokio::time::sleep;
 use zip::ZipArchive;
 
 use crate::{
-    csv_postgres_integration::{send_csv_to_database_whole, GeneralizedCsvRecord},
+    csv_postgres_integration::{self, GeneralizedCsvRecord},
     db_api::{
         consts::{ID, OSV_DATA_COLUMN_NAME, OSV_TABLE_NAME},
         db_connection::get_db_connection,
@@ -67,12 +67,15 @@ const OSV_ID_MAX_CHARACTERS: usize = 48;
 /// Downloads whole OSV ZIP archive data and stores all separate records to a database.
 /// A OSV timestamp is then created to aid in future partial updates.
 ///
-/// This function should only run if the local database is empty or very outdated
-// todo: needs testing, urls may return errors
+/// Modes of operation:
+///
+///  - recreate_database_table set to true: Recreate and completely repopulate the table.
+///  - recreate_database_table set to false: Try to update existing data by inserting or replacing old values with newer ones. This won't delete entries if they for some reason disappear from the full data. This won't create the table if it doesn't exist. This won't check for any previously corrupted data.
 pub async fn scrape_osv_full(
-    client: reqwest::Client,
+    client: &reqwest::Client,
     db_connection: sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
+    recreate_database_table: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
 
@@ -89,12 +92,15 @@ pub async fn scrape_osv_full(
     )
     .await?;
 
-    log::info!("Recreating database table.");
-    let database_delete_start = Instant::now();
-    db_connection
-        .execute(
-            QueryBuilder::<Postgres>::new(format!(
-                "
+    let row_count = create_csv(download_path, csv_path, pg_bars).await?;
+
+    if recreate_database_table {
+        log::info!("Recreating database table.");
+        let database_delete_start = Instant::now();
+        db_connection
+            .execute(
+                QueryBuilder::<Postgres>::new(format!(
+                    "
         DROP TABLE IF EXISTS \"{OSV_TABLE_NAME}\";
         CREATE TABLE \"{OSV_TABLE_NAME}\" (
             \"id\" character varying({OSV_ID_MAX_CHARACTERS}) PRIMARY KEY,
@@ -102,21 +108,39 @@ pub async fn scrape_osv_full(
             \"modified\" TIMESTAMPTZ NOT NULL,
             \"{OSV_DATA_COLUMN_NAME}\" JSONB NOT NULL
         );",
-            ))
-            .build()
-            .sql(),
-        )
-        .await
-        .unwrap();
-    info!("Creating a new OSV table with name \"{OSV_TABLE_NAME}\" and data column \"{OSV_DATA_COLUMN_NAME}\"");
-    log::info!(
-        "Finished recreating database table. Time: {:?}",
-        database_delete_start.elapsed()
-    );
+                ))
+                .build()
+                .sql(),
+            )
+            .await
+            .unwrap();
+        info!("Creating a new OSV table with name \"{OSV_TABLE_NAME}\" and data column \"{OSV_DATA_COLUMN_NAME}\"");
+        log::info!(
+            "Finished recreating database table. Time: {:?}",
+            database_delete_start.elapsed()
+        );
 
-    let row_count = create_csv(download_path, csv_path, pg_bars).await?;
-    send_csv_to_database_whole(&db_connection, csv_path, OSV_TABLE_NAME, row_count).await?;
-    // update_osv_timestamp()?;
+        csv_postgres_integration::send_csv_to_database_whole(
+            &db_connection,
+            csv_path,
+            OSV_TABLE_NAME,
+            row_count,
+        )
+        .await?;
+    } else {
+        log::info!(
+            "Attempting an update on the existing table. Number of entries: {}",
+            row_count,
+        );
+
+        csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
+            &db_connection,
+            csv_path,
+            OSV_TABLE_NAME,
+        )
+        .await?;
+    }
+    update_osv_timestamp()?;
 
     info!(
         "Finished downloading and parsing the full OSV database. Total time: {:?}",

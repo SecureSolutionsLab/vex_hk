@@ -1,18 +1,17 @@
 use std::{collections::HashMap, fs, path::Path, time::Instant};
 
 use chrono::{NaiveDate, Utc};
-use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 
 use crate::{
-    csv_postgres_integration::GeneralizedCsvRecord,
+    csv_postgres_integration::{self, GeneralizedCsvRecord},
     osv_schema::OsvEssentials,
     scrape_mod::github::{
-        rest_api::get_only_essential_after_modified_date, OSVGitHubExtended,
+        rest_api::get_only_essential_after_modified_date, OSVGitHubExtended, API_REQUESTS_LIMIT,
         MIN_TIME_BETWEEN_REQUESTS,
     },
 };
 
-use super::{GithubApiDownloadError, GithubApiDownloadType};
+use super::{GithubApiDownloadError, GithubType};
 
 // NOTE
 // Structured api for files and directories less than 1MB
@@ -73,12 +72,30 @@ pub enum SingleFileError {
     Reqwest(#[from] reqwest::Error),
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum FileUpdateError {
+    #[error(transparent)]
+    ApiError(#[from] GithubApiDownloadError),
+    #[error("SQL error:\n{0}")]
+    Reqwest(#[from] sqlx::Error),
+}
+
+/// # Result of an repository file retrieval
+#[must_use]
+#[derive(Debug)]
+pub enum GithubOsvUpdate {
+    /// All requests completed. Total number of updated entries
+    AllOk(usize),
+    /// Api limit reached. Requests completed / Total required requests
+    ApiLimitReached((usize, usize)),
+}
+
 pub async fn get_single_osv_file_data(
     client: &reqwest::Client,
     token: &str,
     publish_date: chrono::DateTime<Utc>,
     id: &str,
-    ty: GithubApiDownloadType,
+    ty: GithubType,
 ) -> Result<OSVGitHubExtended, SingleFileError> {
     let url = format!(
         "https://api.github.com/repos/github/advisory-database/contents/advisories/{}/{}/{}/{}.json",
@@ -110,29 +127,25 @@ pub async fn get_single_osv_file_data(
     Ok(data)
 }
 
-/// # Result of an repository file retrieval
-#[must_use]
-#[derive(Debug)]
-pub enum GithubOsvUpdate {
-    /// All requests completed. Total number of updated entries
-    AllOk(usize),
-    /// Api limit reached. Requests completed / Total required requests
-    ApiLimitReached((usize, usize)),
-}
-
-// Try to get OSV files that were modified after a specific date (inclusive)
-//      (7 july will include advisories modified in 7 of july)
-// This function saves its progress and doesn't commit if the maximum number of requests is reached,
-// continuing on a subsequent function call.
-// Check GithubOsvUpdate
-pub async fn read_ids_and_download_files_into_database(
-    db_connection: sqlx::Pool<sqlx::Postgres>,
+/// # Attempt to update GitHub OSV database, without downloading the full repository, with the use of the API
+///
+/// This function will attempt to get a list of possible files that got updated after a specific date (inclusive, meaning files updated on that specific day are included) and download each file individually so that the OSV database can be updated without redownloading the entire repository.
+///
+/// To help mitigate possible errors and too many requests, this function saves downloaded data and can continue in the case that the download gets interrupted. See [download_repository_files_into_osv_from_list_incremental] for details.
+///
+/// The reviewed/unreviewed tables are NOT download simultaneously. Call this function separately for each advisory type.
+///
+/// Note: retrieving repository files through the REST API is very inefficient, as it cannot be done in bulk and so requires performing individual requests for each file. This function may be needed to be converted to use the graphql API. Use it only for small database updates.
+///
+/// This function assumes that the database table already exists (it would be a bad idea to try to download the entire repository this way, when [super::repository] exists).
+pub async fn update_osv_database_incremental(
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
     client: &reqwest::Client,
     token: &str,
     date: NaiveDate,
-    ty: GithubApiDownloadType,
-) -> Result<GithubOsvUpdate, GithubApiDownloadError> {
+    ty: GithubType,
+) -> Result<GithubOsvUpdate, FileUpdateError> {
     let start = Instant::now();
     log::info!("Starting GitHub OSV file update.");
 
@@ -147,12 +160,13 @@ pub async fn read_ids_and_download_files_into_database(
         essentials_inst.elapsed(),
         essentials.len()
     );
+    let update_path = Path::new(ty.csv_update_path());
     let update = download_repository_files_into_osv_from_list_incremental(
         client,
         token,
         &essentials,
         ty,
-        Path::new(ty.csv_update_path()),
+        update_path,
         Path::new(ty.csv_update_path_temp()),
         pg_bars,
     )
@@ -164,7 +178,19 @@ pub async fn read_ids_and_download_files_into_database(
             Ok(update)
         }
         GithubOsvUpdate::AllOk(_) => {
-            todo!();
+            let updated_rows =
+                csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
+                    db_connection,
+                    update_path,
+                    ty.osv_table_name(),
+                )
+                .await?;
+            log::info!(
+                "Update successfully completed. Total time: {:?}. Number of updated rows: {}",
+                start.elapsed(),
+                updated_rows
+            );
+            Ok(GithubOsvUpdate::AllOk(updated_rows as usize))
         }
     }
 }
@@ -178,11 +204,13 @@ pub async fn read_ids_and_download_files_into_database(
 /// This function creates a separate temporary csv file containing the data worked upon, in order to not corrupt the original file in case of an error. That file is copied to replace the original at the end when the file is complete.
 ///
 /// Note: retrieving repository files through the REST API is very inefficient, as it cannot be done in bulk and so requires performing individual requests for each file. This function may be needed to be converted to use the graphql API. Use it only for small database updates.
+// todo: this is one of the function that would actually benefit from parallel http calls, as one
+// is usually not enough to upset the limits of the API
 pub async fn download_repository_files_into_osv_from_list_incremental(
     client: &reqwest::Client,
     token: &str,
     ids_to_download: &Vec<OsvEssentials>,
-    ty: GithubApiDownloadType,
+    ty: GithubType,
     csv_file_path: &Path,
     csv_file_path_temp: &Path,
     pg_bars: &indicatif::MultiProgress,
@@ -277,6 +305,12 @@ pub async fn download_repository_files_into_osv_from_list_incremental(
     } else {
         &ids_to_download
     };
+
+    if new_ids_to_download.len() > API_REQUESTS_LIMIT {
+        log::warn!(
+            "Number of files required to download is higher than set API limit ({}). This operation probably won't finish in one function call.", API_REQUESTS_LIMIT
+        );
+    }
 
     let bar = pg_bars.add(indicatif::ProgressBar::new(new_ids_to_download.len() as u64));
     let mut previous_call_instant = processing_start;
