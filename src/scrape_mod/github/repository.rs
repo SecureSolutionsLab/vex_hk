@@ -9,9 +9,9 @@ use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 use zip::ZipArchive;
 
 use crate::{
+    csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
     db_api::consts::{GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME},
     download::download_and_save_to_file_in_chunks,
-    scrape_mod::csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
 };
 
 use super::{
@@ -21,10 +21,10 @@ use super::{
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 
-/// Download repository data from <REPOSITORY_URL> and send it to <GITHUB_REVIEWED_TABLE_NAME> for reviewed amd <GITHUB_UNREVIEWED_TABLE_NAME> tables for reviewed and unreviewed advisories, respectfully.
+/// Download repository data from [REPOSITORY_URL] and send it to [GITHUB_REVIEWED_TABLE_NAME] for reviewed amd [GITHUB_UNREVIEWED_TABLE_NAME] tables for reviewed and unreviewed advisories, respectfully.
 ///
 /// This operation is quite fast, and it does not involve the GitHub API, performing only one download. The only downside is that it is not incremental, requiring a full redownload each time the data needs to be updated.
-/// 
+///
 /// It does not act on data that is already present in the database, instead recreating the tables each time, even when most information is already present
 pub async fn download_osv_full(
     client: reqwest::Client,
@@ -109,7 +109,7 @@ DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
     Ok(())
 }
 
-/// Almost identical to OSV in functionality, however with added GitHub checks and reviewed/unreviewed subdivision. 
+/// Almost identical to OSV in functionality, however with added GitHub checks and reviewed/unreviewed subdivision.
 async fn create_csv(
     download: &Path,
     csv_reviewed: &Path,

@@ -13,7 +13,7 @@ const URL_MATCH: &str = r"https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a
 
 /// # Retrieve advisories from the api
 ///
-/// https://docs.github.com/en/rest/security-advisories/global-advisories
+/// <https://docs.github.com/en/rest/security-advisories/global-advisories>
 ///
 /// Saves information relative to one advisory api request, and retrieves all the data from it, even if paginated.
 pub struct PaginatedGithubAdvisoriesDataIter<'a> {
@@ -28,7 +28,7 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
     ///
     /// The first request won't happen until [PaginatedGithubAdvisoriesDataIter::next_page_data] is called for the first time.
     ///
-    /// See https://docs.github.com/en/rest/security-advisories/global-advisories for information on query parameters. This only refers to the query arguments linked to the http query itself, not the headers.
+    /// See <https://docs.github.com/en/rest/security-advisories/global-advisories> for information on query parameters. This only refers to the query arguments linked to the http query itself, not the headers.
     pub fn new(
         client: &'a reqwest::Client,
         token: &'a str,
@@ -152,9 +152,9 @@ pub async fn api_data_after_update_date_paginated_json_files(
     Ok((total_entries, i))
 }
 
-/// Download and save data in one single csv file, in [OsvCsvRow] format
+/// Download and save data in one single csv file, in [crate::csv_postgres_integration::GeneralizedCsvRecord] format
 ///
-/// Download advisories modified after a specific date (inclusive, includes the day itself). Saves everything in a CSV file, where each row corresponds to one advisory. See [OsvCsvRow] for details.
+/// Download advisories modified after a specific date (inclusive, includes the day itself). Saves everything in a CSV file, where each row corresponds to one advisory. See [crate::csv_postgres_integration] for details.
 ///
 /// Note: this function does NOT save progress during requests, and it won't be able to continue if it gets interrupted or an error occurs, so it should NOT be used for long or error-prone downloads that may require more than the API limit of requests for one hour.
 ///

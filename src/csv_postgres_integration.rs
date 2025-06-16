@@ -1,3 +1,7 @@
+//! # Functionality to make it easier to store arbitrary data to a database
+//!
+//! Conversion to CSV and communication with the database
+
 use std::{path::Path, time::Instant};
 
 use chrono::DateTime;
@@ -33,8 +37,8 @@ pub struct GeneralizedCsvRecord {
 
 impl GeneralizedCsvRecord {
     /// Represent data in a row of [id, published, modified, json]
-    /// 
-    /// This can be used directly as a record by the csv library 
+    ///
+    /// This can be used directly as a record by the csv library
     pub fn as_row<'a>(&'a self) -> [&'a str; 4] {
         [&self.id, &self.published, &self.modified, &self.json]
     }
@@ -75,7 +79,7 @@ impl GeneralizedCsvRecord {
 }
 
 /// Read CSV and send data **as is** to Postgres. This does not perform any checks, other by forwarding errors returned by Postgres itself.
-/// 
+///
 /// This does NOT replace data, only inserts it.
 pub async fn send_csv_to_database_whole(
     db_connection: &sqlx::Pool<sqlx::Postgres>,

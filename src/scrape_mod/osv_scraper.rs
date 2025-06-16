@@ -18,6 +18,7 @@ use tokio::time::sleep;
 use zip::ZipArchive;
 
 use crate::{
+    csv_postgres_integration::{send_csv_to_database_whole, GeneralizedCsvRecord},
     db_api::{
         consts::{ID, OSV_DATA_COLUMN_NAME, OSV_TABLE_NAME},
         db_connection::get_db_connection,
@@ -28,10 +29,7 @@ use crate::{
     },
     download::download_and_save_to_file_in_chunks,
     osv_schema::OSVGeneralized,
-    scrape_mod::{
-        csv_postgres_integration::{send_csv_to_database_whole, GeneralizedCsvRecord},
-        structs::Sitemap,
-    },
+    scrape_mod::structs::Sitemap,
     utils::config::{read_key, store_key},
 };
 

@@ -4,12 +4,11 @@ use chrono::{NaiveDate, Utc};
 use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 
 use crate::{
+    csv_postgres_integration::GeneralizedCsvRecord,
     osv_schema::OsvEssentials,
-    scrape_mod::{
-        csv_postgres_integration::GeneralizedCsvRecord, github::{
-            rest_api::get_only_essential_after_modified_date, OSVGitHubExtended,
-            MIN_TIME_BETWEEN_REQUESTS,
-        }
+    scrape_mod::github::{
+        rest_api::get_only_essential_after_modified_date, OSVGitHubExtended,
+        MIN_TIME_BETWEEN_REQUESTS,
     },
 };
 
@@ -173,11 +172,11 @@ pub async fn read_ids_and_download_files_into_database(
 /// # Download files from repository from a list, incremental
 ///
 /// Given a list of ids, download OSV files from repository and save them to a CSV file.
-/// 
+///
 /// This function can resume function in case of an error, given it receives the same ids list as it worked previously. It will compare ids to download with existing ones and redownload them if the modified date has been updated.
-/// 
+///
 /// This function creates a separate temporary csv file containing the data worked upon, in order to not corrupt the original file in case of an error. That file is copied to replace the original at the end when the file is complete.
-/// 
+///
 /// Note: retrieving repository files through the REST API is very inefficient, as it cannot be done in bulk and so requires performing individual requests for each file. This function may be needed to be converted to use the graphql API. Use it only for small database updates.
 pub async fn download_repository_files_into_osv_from_list_incremental(
     client: &reqwest::Client,

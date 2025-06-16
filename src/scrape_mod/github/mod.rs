@@ -21,15 +21,13 @@ use serde::{Deserialize, Serialize};
 use crate::{download::DownloadError, osv_schema::OSV};
 
 /// Location of the directory / folder where temporary files are created. This can get quite big depending on operations.
-const TEMP_PATH_DIR: &str = "/zmnt/vex/";
+pub const TEMP_PATH_DIR: &str = "/zmnt/vex/";
 
 const TEMP_DOWNLOAD_FILE_PATH: &str = concatcp!(TEMP_PATH_DIR, "github_all_temp.zip");
 const TEMP_CSV_FILE_PATH_REVIEWED: &str = concatcp!(TEMP_PATH_DIR, "github_reviewed_temp.csv");
-const TEMP_CSV_FILE_PATH_UNREVIEWED: &str =
-    concatcp!(TEMP_PATH_DIR, "github_unreviewed_temp.csv");
+const TEMP_CSV_FILE_PATH_UNREVIEWED: &str = concatcp!(TEMP_PATH_DIR, "github_unreviewed_temp.csv");
 
-const UPDATE_CSV_FILE_PATH_REVIEWED: &str =
-    concatcp!(TEMP_PATH_DIR, "github_update_reviewed.csv");
+const UPDATE_CSV_FILE_PATH_REVIEWED: &str = concatcp!(TEMP_PATH_DIR, "github_update_reviewed.csv");
 const UPDATE_CSV_FILE_PATH_UNREVIEWED: &str =
     concatcp!(TEMP_PATH_DIR, "github_update_unreviewed.csv");
 const TEMP_UPDATE_CSV_FILE_PATH_REVIEWED: &str =
@@ -38,10 +36,10 @@ const TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED: &str =
     concatcp!(TEMP_PATH_DIR, "github_update_unreviewed_temp.csv");
 
 // url refers to the "zip file download" of the repository
-const REPOSITORY_URL: &str =
+pub const REPOSITORY_URL: &str =
     "https://github.com/github/advisory-database/archive/refs/heads/main.zip";
 
-const API_URL: &str = "https://api.github.com/advisories";
+pub const API_URL: &str = "https://api.github.com/advisories";
 
 // https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database
 // ids come in the format of GHSA-xxxx-xxxx-xxxx

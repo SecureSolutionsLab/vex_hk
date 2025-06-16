@@ -11,5 +11,3 @@ pub mod nvd_scraper;
 pub mod osv_scraper;
 
 pub mod github;
-
-mod csv_postgres_integration;
