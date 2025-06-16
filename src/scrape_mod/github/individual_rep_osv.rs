@@ -6,11 +6,10 @@ use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 use crate::{
     osv_schema::OsvEssentials,
     scrape_mod::{
-        csv_conversion::OsvCsvRow,
-        github::{
+        csv_postgres_integration::GeneralizedCsvRecord, github::{
             rest_api::get_only_essential_after_modified_date, OSVGitHubExtended,
             MIN_TIME_BETWEEN_REQUESTS,
-        },
+        }
     },
 };
 
@@ -112,12 +111,13 @@ pub async fn get_single_osv_file_data(
     Ok(data)
 }
 
+/// # Result of an repository file retrieval
 #[must_use]
 #[derive(Debug)]
 pub enum GithubOsvUpdate {
-    // All requests completed. Total number of updated entries
+    /// All requests completed. Total number of updated entries
     AllOk(usize),
-    // Api limit reached. Requests completed / Total required requests
+    /// Api limit reached. Requests completed / Total required requests
     ApiLimitReached((usize, usize)),
 }
 
@@ -148,7 +148,7 @@ pub async fn read_ids_and_download_files_into_database(
         essentials_inst.elapsed(),
         essentials.len()
     );
-    let update = update_csv_file(
+    let update = download_repository_files_into_osv_from_list_incremental(
         client,
         token,
         &essentials,
@@ -170,8 +170,16 @@ pub async fn read_ids_and_download_files_into_database(
     }
 }
 
-// create a new csv file for updated osv files or update an existing one
-async fn update_csv_file(
+/// # Download files from repository from a list, incremental
+///
+/// Given a list of ids, download OSV files from repository and save them to a CSV file.
+/// 
+/// This function can resume function in case of an error, given it receives the same ids list as it worked previously. It will compare ids to download with existing ones and redownload them if the modified date has been updated.
+/// 
+/// This function creates a separate temporary csv file containing the data worked upon, in order to not corrupt the original file in case of an error. That file is copied to replace the original at the end when the file is complete.
+/// 
+/// Note: retrieving repository files through the REST API is very inefficient, as it cannot be done in bulk and so requires performing individual requests for each file. This function may be needed to be converted to use the graphql API. Use it only for small database updates.
+pub async fn download_repository_files_into_osv_from_list_incremental(
     client: &reqwest::Client,
     token: &str,
     ids_to_download: &Vec<OsvEssentials>,
@@ -217,7 +225,7 @@ async fn update_csv_file(
         let mut existing_ids = HashMap::new();
         for record_res in reader.records() {
             let csv_record = record_res?;
-            let record = OsvCsvRow::from_csv_record(csv_record.clone());
+            let record = GeneralizedCsvRecord::from_csv_record(csv_record.clone());
             let essentials = record.to_essentials();
             existing_ids.insert(essentials.id, (essentials.modified, csv_record));
         }
@@ -325,7 +333,7 @@ async fn update_csv_file(
                 }
             }
         };
-        let record = OsvCsvRow::from_osv(osv);
+        let record = GeneralizedCsvRecord::from_osv(osv);
         writer.write_record(record.as_row())?;
         bar.set_position(i as u64);
     }

@@ -12,4 +12,4 @@ pub mod osv_scraper;
 
 pub mod github;
 
-mod csv_conversion;
+mod csv_postgres_integration;

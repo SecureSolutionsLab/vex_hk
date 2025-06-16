@@ -28,7 +28,10 @@ use crate::{
     },
     download::download_and_save_to_file_in_chunks,
     osv_schema::OSVGeneralized,
-    scrape_mod::{csv_conversion::OsvCsvRow, structs::Sitemap},
+    scrape_mod::{
+        csv_postgres_integration::{send_csv_to_database_whole, GeneralizedCsvRecord},
+        structs::Sitemap,
+    },
     utils::config::{read_key, store_key},
 };
 
@@ -114,8 +117,7 @@ pub async fn scrape_osv_full(
     );
 
     let row_count = create_csv(download_path, csv_path, pg_bars).await?;
-    crate::open_and_send_csv_to_database_whole(&db_connection, csv_path, OSV_TABLE_NAME, row_count)
-        .await?;
+    send_csv_to_database_whole(&db_connection, csv_path, OSV_TABLE_NAME, row_count).await?;
     // update_osv_timestamp()?;
 
     info!(
@@ -201,9 +203,8 @@ pub async fn create_csv(
                 }
             }
 
-            let row_data = OsvCsvRow::from_osv(osv_record);
-            let record = row_data.as_row();
-            csv_writer.write_record(&record)?;
+            let generalized = GeneralizedCsvRecord::from_osv(osv_record);
+            csv_writer.write_record(&generalized.as_row())?;
             buffer.clear();
             bar.set_position((file_i + 1) as u64);
             processed_file_count += 1;

@@ -1,14 +1,17 @@
-pub mod api_response;
-mod individual_rep_osv;
-mod repository;
-mod rest_api;
+//! # GitHub ([https://github.com/advisories](https://github.com/advisories))
+//!
+//! This module incudes functionality for downloading advisory data in OSV format as well as in the GitHub specific format.
+//!
+//! This module is subdivided in different parts. See each submodule for details.
+//!
+//!  - [repository]: Functions for downloading repository data in OSV format. Fast, but only downloads in bulk.
+//!  - [rest_api]: Functions related to the GitHub REST API. Requires token. Not slow, but can get problematic if data is required in bulk. The returned format is different from OSV, and it can be more updated / newer than the repository (clarification needed). See format in [api_response]. Contains multiple functions.
+//!  - [individual_rep_osv]: Utilities for getting OSV files from the repository individually by calling the API or given an preexisting list. Can be slow, but useful for performing updates to preexisting data from [repository].
 
-pub use individual_rep_osv::{read_ids_and_download_files_into_database, GithubOsvUpdate};
-pub use repository::download_full;
-pub use rest_api::{
-    download_and_save_api_data_after_update_date, get_only_essential_after_modified_date,
-    PaginatedGithubAdvisoriesDataIter,
-};
+pub mod api_response;
+pub mod individual_rep_osv;
+pub mod repository;
+pub mod rest_api;
 
 use std::{fmt::Display, time::Duration};
 
@@ -17,24 +20,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::{download::DownloadError, osv_schema::OSV};
 
-const TEMP_PATH_FOLDER: &str = "/zmnt/vex/";
+/// Location of the directory / folder where temporary files are created. This can get quite big depending on operations.
+const TEMP_PATH_DIR: &str = "/zmnt/vex/";
 
-const TEMP_DOWNLOAD_FILE_PATH: &str = concatcp!(TEMP_PATH_FOLDER, "github_all_temp.zip");
-const TEMP_CSV_FILE_PATH_REVIEWED: &str = concatcp!(TEMP_PATH_FOLDER, "github_reviewed_temp.csv");
+const TEMP_DOWNLOAD_FILE_PATH: &str = concatcp!(TEMP_PATH_DIR, "github_all_temp.zip");
+const TEMP_CSV_FILE_PATH_REVIEWED: &str = concatcp!(TEMP_PATH_DIR, "github_reviewed_temp.csv");
 const TEMP_CSV_FILE_PATH_UNREVIEWED: &str =
-    concatcp!(TEMP_PATH_FOLDER, "github_unreviewed_temp.csv");
+    concatcp!(TEMP_PATH_DIR, "github_unreviewed_temp.csv");
 
 const UPDATE_CSV_FILE_PATH_REVIEWED: &str =
-    concatcp!(TEMP_PATH_FOLDER, "github_update_reviewed.csv");
+    concatcp!(TEMP_PATH_DIR, "github_update_reviewed.csv");
 const UPDATE_CSV_FILE_PATH_UNREVIEWED: &str =
-    concatcp!(TEMP_PATH_FOLDER, "github_update_unreviewed.csv");
+    concatcp!(TEMP_PATH_DIR, "github_update_unreviewed.csv");
 const TEMP_UPDATE_CSV_FILE_PATH_REVIEWED: &str =
-    concatcp!(TEMP_PATH_FOLDER, "github_update_reviewed_temp.csv");
+    concatcp!(TEMP_PATH_DIR, "github_update_reviewed_temp.csv");
 const TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED: &str =
-    concatcp!(TEMP_PATH_FOLDER, "github_update_unreviewed_temp.csv");
+    concatcp!(TEMP_PATH_DIR, "github_update_unreviewed_temp.csv");
 
-const FULL_DATA_URL: &str =
+// url refers to the "zip file download" of the repository
+const REPOSITORY_URL: &str =
     "https://github.com/github/advisory-database/archive/refs/heads/main.zip";
+
+const API_URL: &str = "https://api.github.com/advisories";
 
 // https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database
 // ids come in the format of GHSA-xxxx-xxxx-xxxx
@@ -138,6 +145,7 @@ impl From<DownloadError> for GithubApiDownloadError {
     }
 }
 
+// WARNING: do not change without checking how CSV data is loaded.
 fn get_create_table_text(name: &str) -> String {
     format!(
         "CREATE TABLE \"{}\" (

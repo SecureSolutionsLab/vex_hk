@@ -1,18 +1,21 @@
-use std::{fs, io::Write, path::Path};
+use std::{fs, io::Write, path::Path, time::Instant};
 
 use regex::Regex;
 
 use crate::osv_schema::OsvEssentials;
 
 use super::{
-    api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubApiDownloadType,
+    api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubApiDownloadType, API_URL,
 };
 
 // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
 const URL_MATCH: &str = r"https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*)";
 
-// retrieve advisories from the api
-// https://docs.github.com/en/rest/security-advisories/global-advisories
+/// # Retrieve advisories from the api
+///
+/// https://docs.github.com/en/rest/security-advisories/global-advisories
+///
+/// Saves information relative to one advisory api request, and retrieves all the data from it, even if paginated.
 pub struct PaginatedGithubAdvisoriesDataIter<'a> {
     client: &'a reqwest::Client,
     header_next_pattern: Regex,
@@ -21,6 +24,11 @@ pub struct PaginatedGithubAdvisoriesDataIter<'a> {
 }
 
 impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
+    /// Parse and store the information relative to the request.
+    ///
+    /// The first request won't happen until [PaginatedGithubAdvisoriesDataIter::next_page_data] is called for the first time.
+    ///
+    /// See https://docs.github.com/en/rest/security-advisories/global-advisories for information on query parameters. This only refers to the query arguments linked to the http query itself, not the headers.
     pub fn new(
         client: &'a reqwest::Client,
         token: &'a str,
@@ -29,7 +37,7 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
         let next_pattern = Regex::new(&("<(".to_owned() + URL_MATCH + ")>; rel=\"next\"")).unwrap();
 
         let request = client
-            .get("https://api.github.com/advisories")
+            .get(API_URL)
             .bearer_auth(token)
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header(reqwest::header::USER_AGENT, "User")
@@ -46,6 +54,9 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
         })
     }
 
+    /// Perform a request to get information related to the next page.
+    ///
+    /// As [PaginatedGithubAdvisoriesDataIter] functions as a iterator, this function will continuously return None if no new information is left to fetch.
     pub async fn next_page_data(
         &mut self,
     ) -> Option<Result<Vec<GitHubAdvisoryAPIResponse>, reqwest::Error>> {
@@ -92,11 +103,12 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
     }
 }
 
-// Download api data for advisories modified after a specific date
-// and save as files to a directory
-// Date includes the day the advisory was modified
-//      (so 7 july will include advisories modified in 7 of july)
-pub async fn download_and_save_api_data_after_update_date(
+/// Download and save data in json files corresponding to paginated pages
+///
+/// Download advisories modified after a specific date (inclusive, includes the day itself). Save each page in a separate file, corresponding to an array of json objects.
+///
+/// Returns the number of total entries, as well as the number of pages.
+pub async fn api_data_after_update_date_paginated_json_files(
     client: &reqwest::Client,
     token: &str,
     save_dir_path: &Path,
@@ -140,10 +152,63 @@ pub async fn download_and_save_api_data_after_update_date(
     Ok((total_entries, i))
 }
 
-// Get only names, publish dates and modified dates
-// of advisories modified after a specific date (inclusive)
-//      (7 july will include advisories modified in 7 of july)
-// To be used for osv file retrieval
+/// Download and save data in one single csv file, in [OsvCsvRow] format
+///
+/// Download advisories modified after a specific date (inclusive, includes the day itself). Saves everything in a CSV file, where each row corresponds to one advisory. See [OsvCsvRow] for details.
+///
+/// Note: this function does NOT save progress during requests, and it won't be able to continue if it gets interrupted or an error occurs, so it should NOT be used for long or error-prone downloads that may require more than the API limit of requests for one hour.
+///
+/// Returns the number of total entries.
+pub async fn api_data_after_update_date_single_csv_file(
+    client: &reqwest::Client,
+    token: &str,
+    csv_file_path: &Path,
+    date: chrono::NaiveDate,
+    ty: GithubApiDownloadType,
+) -> Result<usize, GithubApiDownloadError> {
+    let processing_start = Instant::now();
+    {
+        let parent = csv_file_path.parent().unwrap();
+        if !fs::exists(parent)? {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let mut writer = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_file_path)?;
+
+    log::info!(
+        "Performing requests to the GitHub API and saving data to CSV. CSV File created at {:?}",
+        csv_file_path
+    );
+
+    let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
+        client,
+        token,
+        &[
+            ("published", &date.format(">=%Y-%m-%d").to_string()),
+            ("type", ty.api_str()),
+        ],
+    )?;
+    let mut total_entries = 0;
+    let mut i = 0;
+    while let Some(next_page_res) = paginated_iter.next_page_data().await {
+        let next_page_data = next_page_res?;
+        total_entries += next_page_data.len();
+
+        // todo
+        todo!();
+
+        i += 1;
+    }
+
+    Ok(total_entries)
+}
+
+/// Get only names, publish dates and modified dates
+/// of advisories modified after a specific date (inclusive)
+///      (7 july will include advisories modified in 7 of july)
+/// To be used for osv file retrieval
 pub async fn get_only_essential_after_modified_date(
     client: &reqwest::Client,
     token: &str,

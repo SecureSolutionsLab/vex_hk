@@ -11,17 +11,22 @@ use zip::ZipArchive;
 use crate::{
     db_api::consts::{GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME},
     download::download_and_save_to_file_in_chunks,
-    scrape_mod::csv_conversion::{CsvCreationError, OsvCsvRow},
+    scrape_mod::csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
 };
 
 use super::{
-    OSVGitHubExtended, FULL_DATA_URL, GITHUB_ID_CHARACTERS, TEMP_CSV_FILE_PATH_REVIEWED,
+    OSVGitHubExtended, GITHUB_ID_CHARACTERS, REPOSITORY_URL, TEMP_CSV_FILE_PATH_REVIEWED,
     TEMP_CSV_FILE_PATH_UNREVIEWED, TEMP_DOWNLOAD_FILE_PATH,
 };
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 
-pub async fn download_full(
+/// Download repository data from <REPOSITORY_URL> and send it to <GITHUB_REVIEWED_TABLE_NAME> for reviewed amd <GITHUB_UNREVIEWED_TABLE_NAME> tables for reviewed and unreviewed advisories, respectfully.
+///
+/// This operation is quite fast, and it does not involve the GitHub API, performing only one download. The only downside is that it is not incremental, requiring a full redownload each time the data needs to be updated.
+/// 
+/// It does not act on data that is already present in the database, instead recreating the tables each time, even when most information is already present
+pub async fn download_osv_full(
     client: reqwest::Client,
     db_connection: sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
@@ -36,7 +41,7 @@ pub async fn download_full(
 
     download_and_save_to_file_in_chunks(
         client,
-        FULL_DATA_URL,
+        REPOSITORY_URL,
         Path::new(TEMP_DOWNLOAD_FILE_PATH),
         &pg_bars,
     )
@@ -78,14 +83,14 @@ DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
         database_delete_start.elapsed()
     );
 
-    crate::open_and_send_csv_to_database_whole(
+    csv_postgres_integration::send_csv_to_database_whole(
         &db_connection,
         csv_path_reviewed,
         GITHUB_REVIEWED_TABLE_NAME,
         row_count_reviewed,
     )
     .await?;
-    crate::open_and_send_csv_to_database_whole(
+    csv_postgres_integration::send_csv_to_database_whole(
         &db_connection,
         csv_path_unreviewed,
         GITHUB_UNREVIEWED_TABLE_NAME,
@@ -104,6 +109,7 @@ DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
     Ok(())
 }
 
+/// Almost identical to OSV in functionality, however with added GitHub checks and reviewed/unreviewed subdivision. 
 async fn create_csv(
     download: &Path,
     csv_reviewed: &Path,
@@ -127,13 +133,13 @@ async fn create_csv(
     {
         let parent = csv_reviewed.parent().unwrap();
         if !fs::exists(parent)? {
-            fs::create_dir(parent)?;
+            fs::create_dir_all(parent)?;
         }
     }
     {
         let parent = csv_unreviewed.parent().unwrap();
         if !fs::exists(parent)? {
-            fs::create_dir(parent)?;
+            fs::create_dir_all(parent)?;
         }
     }
     let mut csv_writer_reviewed = csv::WriterBuilder::new()
@@ -205,8 +211,8 @@ async fn create_csv(
             }
         }
 
-        let row_data = OsvCsvRow::from_osv(osv_record);
-        let record = row_data.as_row();
+        let row_data = GeneralizedCsvRecord::from_osv(osv_record);
+        let record: [&str; 4] = row_data.as_row();
         if reviewed {
             csv_writer_reviewed.write_record(&record)?;
             processed_file_count_reviewed += 1;

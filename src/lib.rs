@@ -49,12 +49,12 @@ mod download;
 pub mod scrape_mod;
 mod utils;
 
-mod github;
+// mod github;
 
 mod osv_schema;
 // mod scaf_schema;
 
-pub use github::update_github;
+// pub use github::update_github;
 
 #[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
@@ -181,6 +181,7 @@ pub async fn osv_scraper(pg_bars: &indicatif::MultiProgress) {
         .unwrap();
 }
 
+// todo: this kind of sucks
 pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
     use sqlx::Executor;
 
@@ -188,7 +189,7 @@ pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
 
     let client = reqwest::Client::new();
 
-    scrape_mod::github::download_full(client, db_conn, &pg_bars)
+    scrape_mod::github::repository::download_osv_full(client, db_conn, &pg_bars)
         .await
         .unwrap();
 }
@@ -296,35 +297,4 @@ fn parse_year(year: &str) -> i32 {
         error!("Failed to parse year: '{}'", year);
         0
     })
-}
-
-async fn open_and_send_csv_to_database_whole(
-    db_connection: &sqlx::Pool<sqlx::Postgres>,
-    file_path: &Path,
-    table_name: &str,
-    expected_rows_count: usize,
-) -> Result<(), sqlx::Error> {
-    log::info!(
-        "Opening {:?} and sending whole to database, table name: {}",
-        file_path,
-        table_name
-    );
-    let processing_start = Instant::now();
-    let mut copy_conn = db_connection
-        .copy_in_raw(&format!(
-            "COPY \"{}\" FROM STDIN (FORMAT csv, DELIMITER ',')",
-            table_name
-        ))
-        .await?;
-
-    let file = tokio::fs::File::open(file_path).await?;
-
-    copy_conn.read_from(file).await?;
-
-    let result = copy_conn.finish().await?;
-    assert_eq!(result as usize, expected_rows_count);
-
-    log::info!("Finished sending CSV in {:?}", processing_start.elapsed());
-
-    Ok(())
 }
