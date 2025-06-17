@@ -52,7 +52,7 @@ mod db_api;
 pub mod default_config;
 mod download;
 pub mod scrape_mod;
-mod status;
+pub mod state;
 mod utils;
 
 pub use db_api::consts;

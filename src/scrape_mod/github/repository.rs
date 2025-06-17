@@ -17,7 +17,7 @@ use crate::{
         individual_rep_osv::GithubOsvUpdate, GithubType, TEMP_CSV_FILE_REVIEWED_NAME,
         TEMP_CSV_FILE_UNREVIEWED_NAME, TEMP_DOWNLOAD_FILE_NAME,
     },
-    status::ScraperState,
+    state::ScraperState,
 };
 
 use super::{OSVGitHubExtended, GITHUB_ID_CHARACTERS};
@@ -36,7 +36,7 @@ pub async fn manual_download_and_save_state(
 ) -> anyhow::Result<()> {
     let start_time = Utc::now();
     download_osv_full(config, client, db_connection, pg_bars, true).await?;
-    state.save_download_github_osv_full(start_time);
+    state.save_download_github_osv_full(config, start_time);
     Ok(())
 }
 
@@ -143,7 +143,7 @@ pub async fn sync(
             return Ok(());
         };
         log::info!("GitHub reviewed OSV table updated. {} rows modified. Time: {:?}", updated_reviewed, update_inst.elapsed());
-        state.save_update_github_osv_reviewed(start_time);
+        state.save_update_github_osv_reviewed(config, start_time);
 
         let GithubOsvUpdate::AllOk(updated_unreviewed) =
             super::individual_rep_osv::update_osv_database_incremental(
@@ -160,8 +160,8 @@ pub async fn sync(
             log::warn!("Unreviewed update got rate limited. Postponing update. Time: {:?}", update_inst.elapsed());
             return Ok(());
         };
-        log::info!("GitHub unreviewed OSV table updated. {} rows modified. Time: {:?}", updated_unreviewed, update_inst);
-        state.save_update_github_osv_unreviewed(start_time);
+        log::info!("GitHub unreviewed OSV table updated. {} rows modified. Time: {:?}", updated_unreviewed, update_inst.elapsed());
+        state.save_update_github_osv_unreviewed(config, start_time);
 
         log::info!("GitHub OSV table update finished successfully.");
     } else {

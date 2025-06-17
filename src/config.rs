@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::default_config as defaults;
 
-const SELF_TEMP_FILE_NAME: &str = "config_status.json";
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub osv: ConfigOsv,
@@ -13,6 +11,7 @@ pub struct Config {
     pub tokens: Tokens,
     /// path for storing temporary items
     pub temp_dir_path: PathBuf,
+    pub state_file_location: PathBuf,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -21,6 +20,7 @@ impl Default for Config {
             github: ConfigGithub::default(),
             tokens: Tokens::default(),
             temp_dir_path: PathBuf::from(defaults::TEMP_DIR_LOCATION),
+            state_file_location: PathBuf::from(defaults::STATE_FILE_LOCATION)
         }
     }
 }

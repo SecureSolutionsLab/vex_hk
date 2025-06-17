@@ -7,18 +7,14 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::default_config as defaults;
+use crate::config::Config;
 
 const SELF_TEMP_FILE_NAME: &str = "config_status.json";
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct ScraperState {
     pub osv: ScraperStateOsv,
     pub github: ScraperStateGithub,
-    #[serde(skip_serializing, skip_deserializing)]
-    own_config_location: PathBuf,
-    #[serde(skip_serializing, skip_deserializing)]
-    own_config_location_temp: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -30,57 +26,46 @@ enum SaveError {
 }
 
 impl ScraperState {
-    fn save_err(&self) -> Result<(), SaveError> {
-        let mut writer = io::BufWriter::new(fs::File::create(&self.own_config_location_temp)?);
+    fn save_err(&self, config: &Config) -> Result<(), SaveError> {
+        let own_config_location_temp = config.temp_dir_path.join(SELF_TEMP_FILE_NAME);
+
+        let mut writer = io::BufWriter::new(fs::File::create(&own_config_location_temp)?);
         serde_json::to_writer_pretty(&mut writer, self)?;
         writer.flush()?;
-        fs::copy(&self.own_config_location_temp, &self.own_config_location);
+        fs::copy(&own_config_location_temp, &config.state_file_location)?;
         Ok(())
     }
 
-    fn save(&self) {
-        match self.save_err() {
+    fn save(&self, config: &Config) {
+        match self.save_err(config) {
             Ok(()) => log::info!("Scraper state saved."),
             Err(err) => log::error!("FAILED TO UPDATE SCRAPER STATUS\n{}", err),
         }
     }
 
-    pub fn save_download_osv_full(&mut self, download_start: DateTime<Utc>) {
+    pub fn save_download_osv_full(&mut self, config: &Config, download_start: DateTime<Utc>) {
         self.osv.last_update_timestamp = Some(download_start);
         self.osv.initialized = true;
-        self.save();
+        self.save(config);
     }
 
-    pub fn save_download_github_osv_full(&mut self, download_start: DateTime<Utc>) {
+    pub fn save_download_github_osv_full(&mut self, config: &Config, download_start: DateTime<Utc>) {
         self.github.osv.last_update_timestamp_reviewed = Some(download_start);
         self.github.osv.last_update_timestamp_unreviewed = Some(download_start);
         self.github.osv.initialized = true;
-        self.save();
+        self.save(config);
     }
 
-    pub fn save_update_github_osv_reviewed(&mut self, start_time: DateTime<Utc>) {
+    pub fn save_update_github_osv_reviewed(&mut self, config: &Config, start_time: DateTime<Utc>) {
         assert_eq!(self.github.osv.initialized, true);
         self.github.osv.last_update_timestamp_reviewed = Some(start_time);
-        self.save();
+        self.save(config);
     }
 
-    pub fn save_update_github_osv_unreviewed(&mut self, start_time: DateTime<Utc>) {
+    pub fn save_update_github_osv_unreviewed(&mut self, config: &Config, start_time: DateTime<Utc>) {
         assert_eq!(self.github.osv.initialized, true);
         self.github.osv.last_update_timestamp_unreviewed = Some(start_time);
-        self.save();
-    }
-}
-
-impl Default for ScraperState {
-    fn default() -> Self {
-        let temp_dir_path = PathBuf::from(defaults::TEMP_DIR_LOCATION);
-        let own_config_location_temp = temp_dir_path.join(SELF_TEMP_FILE_NAME);
-        Self {
-            osv: ScraperStateOsv::default(),
-            github: ScraperStateGithub::default(),
-            own_config_location: PathBuf::from(defaults::TEMP_DIR_LOCATION),
-            own_config_location_temp,
-        }
+        self.save(config);
     }
 }
 

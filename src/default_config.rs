@@ -1,6 +1,6 @@
 pub const TEMP_DIR_LOCATION: &str = "/zmnt/";
 
-pub const OWN_CONFIG_LOCATION: &str = "./config_status.json";
+pub const STATE_FILE_LOCATION: &str = "./status.json";
 
 /// Temporary table name created during some operations
 ///

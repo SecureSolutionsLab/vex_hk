@@ -148,14 +148,15 @@ pub async fn update_osv_database_incremental(
     let start = Instant::now();
     log::info!("Starting GitHub OSV file update.");
 
-    let update_path = Path::new(ty.csv_update_path());
+    let update_path = &config.temp_dir_path.join(ty.csv_update_path());
+    let update_path_tmp = &config.temp_dir_path.join(ty.csv_update_path());
     let update = download_repository_files_into_osv_from_list_incremental(
         client,
         token,
         &essentials,
         ty,
         update_path,
-        Path::new(ty.csv_update_path_temp()),
+        update_path_tmp,
         pg_bars,
     )
     .await?;
@@ -173,6 +174,7 @@ pub async fn update_osv_database_incremental(
                     ty.osv_table_name(config),
                 )
                 .await?;
+            fs::remove_file(update_path).map_err(|err| FileUpdateError::ApiError(err.into()))?;
             log::info!(
                 "Update successfully completed. Total time: {:?}. Number of updated rows: {}",
                 start.elapsed(),
