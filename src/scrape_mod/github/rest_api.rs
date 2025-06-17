@@ -1,8 +1,8 @@
-use std::{fs, io::Write, path::Path, time::Instant};
+use std::{fs, io::Write, path::Path};
 
 use regex::Regex;
 
-use crate::osv_schema::OsvEssentials;
+use crate::{csv_postgres_integration::GeneralizedCsvRecord, osv_schema::OsvEssentials};
 
 use super::{api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubType, API_URL};
 
@@ -164,7 +164,6 @@ pub async fn api_data_after_update_date_single_csv_file(
     date: chrono::NaiveDate,
     ty: GithubType,
 ) -> Result<usize, GithubApiDownloadError> {
-    let processing_start = Instant::now();
     {
         let parent = csv_file_path.parent().unwrap();
         if !fs::exists(parent)? {
@@ -189,23 +188,22 @@ pub async fn api_data_after_update_date_single_csv_file(
         ],
     )?;
     let mut total_entries = 0;
-    let mut i = 0;
     while let Some(next_page_res) = paginated_iter.next_page_data().await {
         let next_page_data = next_page_res?;
         total_entries += next_page_data.len();
 
-        // todo
-        todo!();
-
-        i += 1;
+        for advisory in next_page_data {
+            let record = GeneralizedCsvRecord::from_github_api_response(advisory);
+            writer.write_record(record.as_row())?;
+        }
     }
+    writer.flush()?;
 
     Ok(total_entries)
 }
 
-/// Get only names, publish dates and modified dates
-/// of advisories modified after a specific date (inclusive)
-///      (7 july will include advisories modified in 7 of july)
+/// Download api data and store only names, publish dates and modified dates
+/// 
 /// To be used for osv file retrieval
 pub async fn get_only_essential_after_modified_date(
     client: &reqwest::Client,

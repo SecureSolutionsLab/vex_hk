@@ -73,6 +73,21 @@ impl GeneralizedCsvRecord {
         }
     }
 
+    pub fn from_github_api_response(
+        data: crate::scrape_mod::github::api_response::GitHubAdvisoryAPIResponse,
+    ) -> Self {
+        let id = data.ghsa_id.clone();
+        let published = data.published_at.to_rfc3339();
+        let modified = data.updated_at.to_rfc3339();
+        let json = serde_json::json!(data).to_string();
+        Self {
+            id,
+            published,
+            modified,
+            json,
+        }
+    }
+
     /// Parse data from an existing arbitrary CSV record. This function will panic if the format is invalid.
     pub fn from_csv_record(record: csv::StringRecord) -> Self {
         record
