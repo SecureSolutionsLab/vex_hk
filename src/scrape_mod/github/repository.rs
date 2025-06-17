@@ -9,22 +9,31 @@ use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 use zip::ZipArchive;
 
 use crate::{
-    db_api::consts::{GITHUB_REVIEWED_TABLE_NAME, GITHUB_UNREVIEWED_TABLE_NAME},
+    csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
-    scrape_mod::csv_conversion::{CsvCreationError, OsvCsvRow},
+    scrape_mod::github::GithubType,
 };
 
 use super::{
-    OSVGitHubExtended, FULL_DATA_URL, GITHUB_ID_CHARACTERS, TEMP_CSV_FILE_PATH_REVIEWED,
+    OSVGitHubExtended, GITHUB_ID_CHARACTERS, REPOSITORY_URL, TEMP_CSV_FILE_PATH_REVIEWED,
     TEMP_CSV_FILE_PATH_UNREVIEWED, TEMP_DOWNLOAD_FILE_PATH,
 };
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 
-pub async fn download_full(
-    client: reqwest::Client,
-    db_connection: sqlx::Pool<sqlx::Postgres>,
+/// Download repository data from [REPOSITORY_URL] and send it to [crate::consts::GITHUB_OSV_REVIEWED_TABLE_NAME] for reviewed amd [crate::consts::GITHUB_OSV_UNREVIEWED_TABLE_NAME] tables for reviewed and unreviewed advisories, respectfully.
+///
+/// This operation is quite fast, and it does not involve the GitHub API, performing only one download. The only downside is that it is not incremental, requiring a full redownload each time the data needs to be updated.
+///
+/// Modes of operation:
+///
+///  - recreate_database_table set to true: Recreate both tables and completely repopulate them.
+///  - recreate_database_table set to false: Try to update existing data by inserting or replacing old values with newer ones. This won't delete entries if they for some reason disappear from the repository. This won't create the tables if they don't exist. This won't check for any previously corrupted data.
+pub async fn download_osv_full(
+    client: &reqwest::Client,
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
+    recreate_database_table: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
 
@@ -36,7 +45,7 @@ pub async fn download_full(
 
     download_and_save_to_file_in_chunks(
         client,
-        FULL_DATA_URL,
+        REPOSITORY_URL,
         Path::new(TEMP_DOWNLOAD_FILE_PATH),
         &pg_bars,
     )
@@ -49,49 +58,71 @@ pub async fn download_full(
     )
     .await?;
 
-    log::info!("Recreating database table.");
-    let database_delete_start = Instant::now();
-    db_connection
-        .execute(
-            QueryBuilder::<Postgres>::new(format!(
-                "
-DROP TABLE IF EXISTS \"{GITHUB_REVIEWED_TABLE_NAME}\";
-DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
+    if recreate_database_table {
+        log::info!("Recreating database table.");
+        let database_delete_start = Instant::now();
+        db_connection
+            .execute(
+                QueryBuilder::<Postgres>::new(format!(
+                    "
+DROP TABLE IF EXISTS \"{}\";
+DROP TABLE IF EXISTS \"{}\";
 {}
 {}
         ",
-                super::get_create_table_text(GITHUB_REVIEWED_TABLE_NAME),
-                super::get_create_table_text(GITHUB_UNREVIEWED_TABLE_NAME),
-            ))
-            .build()
-            .sql(),
-        )
-        .await
-        .unwrap();
-    log::info!(
+                    GithubType::Reviewed.osv_table_name(),
+                    GithubType::Unreviewed.osv_table_name(),
+                    GithubType::Reviewed.create_table_sql_text(),
+                    GithubType::Unreviewed.create_table_sql_text(),
+                ))
+                .build()
+                .sql(),
+            )
+            .await?;
+        log::info!(
         "Creating new Github Advisories tables for GitHub-reviewed and unreviewed advisories, with names \"{}\" and \"{}\"",
-        GITHUB_REVIEWED_TABLE_NAME,
-        GITHUB_UNREVIEWED_TABLE_NAME
+        GithubType::Reviewed.osv_table_name(),
+        GithubType::Unreviewed.osv_table_name()
     );
-    log::info!(
-        "Finished recreating database table. Time: {:?}",
-        database_delete_start.elapsed()
-    );
+        log::info!(
+            "Finished recreating database table. Time: {:?}",
+            database_delete_start.elapsed()
+        );
 
-    crate::open_and_send_csv_to_database_whole(
-        &db_connection,
-        csv_path_reviewed,
-        GITHUB_REVIEWED_TABLE_NAME,
-        row_count_reviewed,
-    )
-    .await?;
-    crate::open_and_send_csv_to_database_whole(
-        &db_connection,
-        csv_path_unreviewed,
-        GITHUB_UNREVIEWED_TABLE_NAME,
-        row_count_unreviewed,
-    )
-    .await?;
+        csv_postgres_integration::send_csv_to_database_whole(
+            &db_connection,
+            csv_path_reviewed,
+            GithubType::Reviewed.osv_table_name(),
+            row_count_reviewed,
+        )
+        .await?;
+        csv_postgres_integration::send_csv_to_database_whole(
+            &db_connection,
+            csv_path_unreviewed,
+            GithubType::Unreviewed.osv_table_name(),
+            row_count_unreviewed,
+        )
+        .await?;
+    } else {
+        log::info!(
+            "Attempting an update on existing tables. Number of entries: {}, {}",
+            row_count_reviewed,
+            row_count_unreviewed
+        );
+
+        csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
+            &db_connection,
+            csv_path_reviewed,
+            GithubType::Reviewed.osv_table_name(),
+        )
+        .await?;
+        csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
+            &db_connection,
+            csv_path_unreviewed,
+            GithubType::Unreviewed.osv_table_name(),
+        )
+        .await?;
+    }
 
     log::info!(
         "Finished downloading and parsing the full OSV database. Total time: {:?}",
@@ -104,6 +135,9 @@ DROP TABLE IF EXISTS \"{GITHUB_UNREVIEWED_TABLE_NAME}\";
     Ok(())
 }
 
+/// Almost identical to OSV in functionality, however with added GitHub checks and reviewed/unreviewed subdivision.
+///
+/// Returns row count for (reviewed, unreviewed).
 async fn create_csv(
     download: &Path,
     csv_reviewed: &Path,
@@ -127,13 +161,13 @@ async fn create_csv(
     {
         let parent = csv_reviewed.parent().unwrap();
         if !fs::exists(parent)? {
-            fs::create_dir(parent)?;
+            fs::create_dir_all(parent)?;
         }
     }
     {
         let parent = csv_unreviewed.parent().unwrap();
         if !fs::exists(parent)? {
-            fs::create_dir(parent)?;
+            fs::create_dir_all(parent)?;
         }
     }
     let mut csv_writer_reviewed = csv::WriterBuilder::new()
@@ -205,8 +239,8 @@ async fn create_csv(
             }
         }
 
-        let row_data = OsvCsvRow::from_osv(osv_record);
-        let record = row_data.as_row();
+        let row_data = GeneralizedCsvRecord::from_osv(osv_record);
+        let record: [&str; 4] = row_data.as_row();
         if reviewed {
             csv_writer_reviewed.write_record(&record)?;
             processed_file_count_reviewed += 1;

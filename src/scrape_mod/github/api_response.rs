@@ -1,11 +1,9 @@
 use chrono::{DateTime, Utc};
 
-use super::OSVGitHubExtended;
-
 pub type GitHubAdvisoryAPIResponses = Vec<GitHubAdvisoryAPIResponse>;
 
-// https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
-// most fields are required, only cvss_severities and epss are not
+/// <https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28>
+/// Most fields are required, only cvss_severities and epss are not
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHubAdvisoryAPIResponse {

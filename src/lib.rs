@@ -9,7 +9,6 @@ use std::{
 use chrono::NaiveDate;
 #[cfg(feature = "nvd")]
 use log::error;
-use scrape_mod::github;
 use sqlx::postgres::PgPoolCopyExt;
 #[cfg(feature = "nvd")]
 use std::{
@@ -37,6 +36,8 @@ use crate::scrape_mod::exploitdb_scraper::exploitdb_scrape;
 #[cfg(feature = "nvd")]
 use crate::scrape_mod::nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd};
 
+pub use db_api::{get_db, get_db_connection};
+
 // Verifies every hour
 #[cfg(feature = "nvd")]
 const TIME_INTERVAL: u64 = 3600;
@@ -45,13 +46,20 @@ const EMPTY: i64 = 0;
 
 const GITHUB_TOKEN_LOCATION: &str = "./tokens/github";
 
+pub mod csv_postgres_integration;
 mod db_api;
 mod download;
 pub mod scrape_mod;
 mod utils;
 
+pub use db_api::consts;
+
+// mod github;
+
 mod osv_schema;
 // mod scaf_schema;
+
+// pub use github::update_github;
 
 #[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
@@ -173,22 +181,23 @@ pub async fn osv_scraper(pg_bars: &indicatif::MultiProgress) {
 
     let client = reqwest::Client::new();
 
-    scrape_mod::osv_scraper::scrape_osv_full(client, db_conn, pg_bars)
+    scrape_mod::osv_scraper::scrape_osv_full(&client, db_conn, pg_bars, true)
         .await
         .unwrap();
 }
 
-pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
-    use sqlx::Executor;
+// todo: this kind of sucks
+// pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
+//     use sqlx::Executor;
 
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+//     let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
 
-    let client = reqwest::Client::new();
+//     let client = reqwest::Client::new();
 
-    scrape_mod::github::download_full(client, db_conn, &pg_bars)
-        .await
-        .unwrap();
-}
+//     scrape_mod::github::repository::download_osv_full(client, db_conn, &pg_bars)
+//         .await
+//         .unwrap();
+// }
 
 #[cfg(feature = "alienvault")]
 pub async fn _alienvault_otx_scraper() {
@@ -293,59 +302,4 @@ fn parse_year(year: &str) -> i32 {
         error!("Failed to parse year: '{}'", year);
         0
     })
-}
-
-async fn open_and_send_csv_to_database_whole(
-    db_connection: &sqlx::Pool<sqlx::Postgres>,
-    file_path: &Path,
-    table_name: &str,
-    expected_rows_count: usize,
-) -> Result<(), sqlx::Error> {
-    log::info!(
-        "Opening {:?} and sending whole to database, table name: {}",
-        file_path,
-        table_name
-    );
-    let processing_start = Instant::now();
-    let mut copy_conn = db_connection
-        .copy_in_raw(&format!(
-            "COPY \"{}\" FROM STDIN (FORMAT csv, DELIMITER ',')",
-            table_name
-        ))
-        .await?;
-
-    let file = tokio::fs::File::open(file_path).await?;
-
-    copy_conn.read_from(file).await?;
-
-    let result = copy_conn.finish().await?;
-    assert_eq!(result as usize, expected_rows_count);
-
-    log::info!("Finished sending CSV in {:?}", processing_start.elapsed());
-
-    Ok(())
-}
-
-// todo
-pub async fn update_github(
-    pg_bars: &indicatif::MultiProgress,
-) -> Result<github::GithubOsvUpdate, github::GithubApiDownloadError> {
-    let token = {
-        let mut buf = String::new();
-        let mut file = std::fs::File::open(GITHUB_TOKEN_LOCATION).unwrap();
-        file.read_to_string(&mut buf).unwrap();
-        buf
-    };
-    let client = reqwest::Client::new();
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
-
-    github::read_ids_and_download_files_into_database(
-        db_conn,
-        pg_bars,
-        &client,
-        &token,
-        chrono::NaiveDate::from_ymd_opt(2025, 5, 1).unwrap(), // todo
-        github::GithubApiDownloadType::Reviewed,
-    )
-    .await
 }

@@ -17,7 +17,7 @@ pub enum DownloadError {
 ///
 /// Uses a tokio BufWriter in order to not perform much spawn_blocking.
 pub async fn download_and_save_to_file_in_chunks(
-    client: reqwest::Client,
+    client: &reqwest::Client,
     url: &str,
     file_path: &Path,
     pg_bars: &indicatif::MultiProgress,
@@ -34,31 +34,27 @@ pub async fn download_and_save_to_file_in_chunks(
 
     log::info!("Performing request to {}...", url);
     let response = client.get(url).send().await?;
-    if let Some(content_len) = response.content_length() {
+    let bar = if let Some(content_len) = response.content_length() {
         log::info!(
             "Request successful. Starting download. ({})",
             human_bytes::human_bytes(content_len as f64)
         );
-        let bar = pg_bars.add(indicatif::ProgressBar::new(content_len));
-
-        let mut stream = response.bytes_stream();
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result?;
-            file.write_all(&chunk).await?;
-
-            bar.inc(chunk.len() as u64);
-        }
-
-        bar.finish();
-        pg_bars.remove(&bar);
+        pg_bars.add(indicatif::ProgressBar::new(content_len))
     } else {
         log::warn!("Request successful, however content length could not be retrieved. Attempting download.");
-        let mut stream = response.bytes_stream();
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result?;
-            file.write_all(&chunk).await?;
-        }
+        pg_bars.add(indicatif::ProgressBar::no_length())
+    };
+
+    let mut stream = response.bytes_stream();
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result?;
+        file.write_all(&chunk).await?;
+
+        bar.inc(chunk.len() as u64);
     }
+
+    bar.finish();
+    pg_bars.remove(&bar);
 
     file.flush().await?;
 
