@@ -11,13 +11,14 @@ use zip::ZipArchive;
 use crate::{
     csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
-    scrape_mod::github::GithubType,
+    scrape_mod::github::{
+        GithubType, TEMP_CSV_FILE_REVIEWED_NAME, TEMP_CSV_FILE_UNREVIEWED_NAME,
+        TEMP_DOWNLOAD_FILE_NAME,
+    },
+    scraper_status::ScraperStatus,
 };
 
-use super::{
-    OSVGitHubExtended, GITHUB_ID_CHARACTERS, REPOSITORY_URL, TEMP_CSV_FILE_PATH_REVIEWED,
-    TEMP_CSV_FILE_PATH_UNREVIEWED, TEMP_DOWNLOAD_FILE_PATH,
-};
+use super::{OSVGitHubExtended, GITHUB_ID_CHARACTERS};
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 
@@ -30,6 +31,7 @@ const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 ///  - recreate_database_table set to true: Recreate both tables and completely repopulate them.
 ///  - recreate_database_table set to false: Try to update existing data by inserting or replacing old values with newer ones. This won't delete entries if they for some reason disappear from the repository. This won't create the tables if they don't exist. This won't check for any previously corrupted data.
 pub async fn download_osv_full(
+    status: &mut ScraperStatus,
     client: &reqwest::Client,
     db_connection: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
@@ -39,21 +41,16 @@ pub async fn download_osv_full(
 
     log::info!("Starting a download a full copy of Github Advisory database.");
 
-    let download_path = Path::new(TEMP_DOWNLOAD_FILE_PATH);
-    let csv_path_reviewed = Path::new(TEMP_CSV_FILE_PATH_REVIEWED);
-    let csv_path_unreviewed = Path::new(TEMP_CSV_FILE_PATH_UNREVIEWED);
+    let download_path = status.temp_dir_path.join(TEMP_DOWNLOAD_FILE_NAME);
+    let csv_path_reviewed = status.temp_dir_path.join(TEMP_CSV_FILE_REVIEWED_NAME);
+    let csv_path_unreviewed = status.temp_dir_path.join(TEMP_CSV_FILE_UNREVIEWED_NAME);
 
-    download_and_save_to_file_in_chunks(
-        client,
-        REPOSITORY_URL,
-        Path::new(TEMP_DOWNLOAD_FILE_PATH),
-        &pg_bars,
-    )
-    .await?;
+    download_and_save_to_file_in_chunks(client, &status.github.osv.url, &download_path, &pg_bars)
+        .await?;
     let (row_count_reviewed, row_count_unreviewed) = create_csv(
-        download_path,
-        csv_path_reviewed,
-        csv_path_unreviewed,
+        &download_path,
+        &csv_path_reviewed,
+        &csv_path_unreviewed,
         pg_bars,
     )
     .await?;
@@ -64,16 +61,11 @@ pub async fn download_osv_full(
         db_connection
             .execute(
                 QueryBuilder::<Postgres>::new(format!(
-                    "
-DROP TABLE IF EXISTS \"{}\";
-DROP TABLE IF EXISTS \"{}\";
-{}
-{}
-        ",
-                    GithubType::Reviewed.osv_table_name(),
-                    GithubType::Unreviewed.osv_table_name(),
-                    GithubType::Reviewed.create_table_sql_text(),
-                    GithubType::Unreviewed.create_table_sql_text(),
+                    "DROP TABLE IF EXISTS \"{}\";\nDROP TABLE IF EXISTS \"{}\";\n{}\n{}",
+                    GithubType::Reviewed.osv_table_name(status),
+                    GithubType::Unreviewed.osv_table_name(status),
+                    GithubType::Reviewed.osv_format_sql_create_table_command(status),
+                    GithubType::Unreviewed.osv_format_sql_create_table_command(status),
                 ))
                 .build()
                 .sql(),
@@ -81,8 +73,8 @@ DROP TABLE IF EXISTS \"{}\";
             .await?;
         log::info!(
         "Creating new Github Advisories tables for GitHub-reviewed and unreviewed advisories, with names \"{}\" and \"{}\"",
-        GithubType::Reviewed.osv_table_name(),
-        GithubType::Unreviewed.osv_table_name()
+        GithubType::Reviewed.osv_table_name(status),
+        GithubType::Unreviewed.osv_table_name(status)
     );
         log::info!(
             "Finished recreating database table. Time: {:?}",
@@ -91,15 +83,15 @@ DROP TABLE IF EXISTS \"{}\";
 
         csv_postgres_integration::send_csv_to_database_whole(
             &db_connection,
-            csv_path_reviewed,
-            GithubType::Reviewed.osv_table_name(),
+            &csv_path_reviewed,
+            GithubType::Reviewed.osv_table_name(&status),
             row_count_reviewed,
         )
         .await?;
         csv_postgres_integration::send_csv_to_database_whole(
             &db_connection,
-            csv_path_unreviewed,
-            GithubType::Unreviewed.osv_table_name(),
+            &csv_path_unreviewed,
+            GithubType::Unreviewed.osv_table_name(&status),
             row_count_unreviewed,
         )
         .await?;
@@ -112,26 +104,27 @@ DROP TABLE IF EXISTS \"{}\";
 
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
             &db_connection,
-            csv_path_reviewed,
-            GithubType::Reviewed.osv_table_name(),
+            &csv_path_reviewed,
+            GithubType::Reviewed.osv_table_name(status),
         )
         .await?;
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
             &db_connection,
-            csv_path_unreviewed,
-            GithubType::Unreviewed.osv_table_name(),
+            &csv_path_unreviewed,
+            GithubType::Unreviewed.osv_table_name(status),
         )
         .await?;
     }
+
+    log::info!("Removing temporary files");
+    fs::remove_file(download_path)?;
+    fs::remove_file(csv_path_reviewed)?;
+    fs::remove_file(csv_path_unreviewed)?;
 
     log::info!(
         "Finished downloading and parsing the full OSV database. Total time: {:?}",
         start.elapsed()
     );
-
-    fs::remove_file(TEMP_DOWNLOAD_FILE_PATH)?;
-    fs::remove_file(TEMP_CSV_FILE_PATH_REVIEWED)?;
-    fs::remove_file(TEMP_CSV_FILE_PATH_UNREVIEWED)?;
     Ok(())
 }
 

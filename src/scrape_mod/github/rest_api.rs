@@ -2,9 +2,12 @@ use std::{fs, io::Write, path::Path};
 
 use regex::Regex;
 
-use crate::{csv_postgres_integration::GeneralizedCsvRecord, osv_schema::OsvEssentials};
+use crate::{
+    csv_postgres_integration::GeneralizedCsvRecord, osv_schema::OsvEssentials,
+    scraper_status::ScraperStatus,
+};
 
-use super::{api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubType, API_URL};
+use super::{api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubType};
 
 // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
 const URL_MATCH: &str = r"https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*)";
@@ -29,13 +32,14 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
     /// See <https://docs.github.com/en/rest/security-advisories/global-advisories> for information on query parameters. This only refers to the query arguments linked to the http query itself, not the headers.
     pub fn new(
         client: &'a reqwest::Client,
+        api_url: &'a str,
         token: &'a str,
         query: &[(&str, &str)],
     ) -> Result<Self, reqwest::Error> {
         let next_pattern = Regex::new(&("<(".to_owned() + URL_MATCH + ")>; rel=\"next\"")).unwrap();
 
         let request = client
-            .get(API_URL)
+            .get(api_url)
             .bearer_auth(token)
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header(reqwest::header::USER_AGENT, "User")
@@ -101,55 +105,6 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
     }
 }
 
-/// Download and save data in json files corresponding to paginated pages
-///
-/// Download advisories modified after a specific date (inclusive, includes the day itself). Save each page in a separate file, corresponding to an array of json objects.
-///
-/// Returns the number of total entries, as well as the number of pages.
-pub async fn api_data_after_update_date_paginated_json_files(
-    client: &reqwest::Client,
-    token: &str,
-    save_dir_path: &Path,
-    date: chrono::NaiveDate,
-    ty: GithubType,
-) -> Result<(usize, usize), GithubApiDownloadError> {
-    {
-        if !fs::exists(save_dir_path)? {
-            fs::create_dir_all(save_dir_path)?;
-        } else {
-            fs::remove_dir_all(save_dir_path)?;
-            fs::create_dir(save_dir_path)?;
-        }
-    }
-
-    let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
-        client,
-        token,
-        &[
-            ("published", &date.format(">=%Y-%m-%d").to_string()),
-            ("type", ty.api_str()),
-        ],
-    )?;
-    let mut total_entries = 0;
-    let mut i = 0;
-    let mut buffer = Vec::new();
-    while let Some(next_page_res) = paginated_iter.next_page_data().await {
-        let next_page_data = next_page_res?;
-        total_entries += next_page_data.len();
-
-        let mut file =
-            std::fs::File::create(format!("{}/{}.json", save_dir_path.to_str().unwrap(), i))?;
-        serde_json::to_writer_pretty(&mut buffer, &next_page_data)?;
-        file.write_all(&mut buffer)?;
-        file.flush()?;
-        buffer.clear();
-
-        i += 1;
-    }
-
-    Ok((total_entries, i))
-}
-
 /// Download and save data in one single csv file, in [crate::csv_postgres_integration::GeneralizedCsvRecord] format
 ///
 /// Download advisories modified after a specific date (inclusive, includes the day itself). Saves everything in a CSV file, where each row corresponds to one advisory. See [crate::csv_postgres_integration] for details.
@@ -203,9 +158,10 @@ pub async fn api_data_after_update_date_single_csv_file(
 }
 
 /// Download api data and store only names, publish dates and modified dates
-/// 
+///
 /// To be used for osv file retrieval
 pub async fn get_only_essential_after_modified_date(
+    status: &ScraperStatus,
     client: &reqwest::Client,
     token: &str,
     date: chrono::NaiveDate,
@@ -213,6 +169,7 @@ pub async fn get_only_essential_after_modified_date(
 ) -> Result<Vec<OsvEssentials>, GithubApiDownloadError> {
     let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
         client,
+        &status.github.api.url,
         token,
         &[
             ("published", &date.format(">=%Y-%m-%d").to_string()),

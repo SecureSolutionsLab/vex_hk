@@ -9,6 +9,7 @@ use crate::{
         rest_api::get_only_essential_after_modified_date, OSVGitHubExtended, API_REQUESTS_LIMIT,
         MIN_TIME_BETWEEN_REQUESTS,
     },
+    scraper_status::ScraperStatus,
 };
 
 use super::{GithubApiDownloadError, GithubType};
@@ -139,6 +140,7 @@ pub async fn get_single_osv_file_data(
 ///
 /// This function assumes that the database table already exists (it would be a bad idea to try to download the entire repository this way, when [super::repository] exists).
 pub async fn update_osv_database_incremental(
+    status: &mut ScraperStatus,
     db_connection: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
     client: &reqwest::Client,
