@@ -46,12 +46,13 @@ const EMPTY: i64 = 0;
 
 const GITHUB_TOKEN_LOCATION: &str = "./tokens/github";
 
+pub mod config;
 pub mod csv_postgres_integration;
 mod db_api;
 pub mod default_config;
 mod download;
 pub mod scrape_mod;
-mod scraper_status;
+mod status;
 mod utils;
 
 pub use db_api::consts;

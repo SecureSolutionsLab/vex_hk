@@ -18,10 +18,7 @@ use std::{fmt::Display, time::Duration};
 use const_format::formatcp;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    csv_postgres_integration, download::DownloadError, osv_schema::OSV,
-    scraper_status::ScraperStatus,
-};
+use crate::{config::Config, csv_postgres_integration, download::DownloadError, osv_schema::OSV};
 
 const TEMP_DOWNLOAD_FILE_NAME: &str = "github_all_temp.zip";
 const TEMP_CSV_FILE_REVIEWED_NAME: &str = "github_reviewed_temp.csv";
@@ -95,7 +92,7 @@ impl GithubType {
         }
     }
 
-    pub const fn csv_update_path(self, status: &ScraperStatus) -> &'static str {
+    pub const fn csv_update_path(self) -> &'static str {
         match self {
             Self::Reviewed => UPDATE_CSV_FILE_PATH_REVIEWED,
             Self::Unreviewed => UPDATE_CSV_FILE_PATH_UNREVIEWED,
@@ -109,23 +106,23 @@ impl GithubType {
         }
     }
 
-    pub fn osv_table_name(self, status: &ScraperStatus) -> &str {
+    pub fn osv_table_name(self, config: &Config) -> &str {
         match self {
-            Self::Reviewed => &status.github.osv.reviewed_table_name,
-            Self::Unreviewed => &status.github.osv.unreviewed_table_name,
+            Self::Reviewed => &config.github.osv.reviewed_table_name,
+            Self::Unreviewed => &config.github.osv.unreviewed_table_name,
         }
     }
 
-    pub fn api_table_name(self, status: &ScraperStatus) -> &str {
+    pub fn api_table_name(self, config: &Config) -> &str {
         match self {
-            Self::Reviewed => &status.github.api.reviewed_table_name,
-            Self::Unreviewed => &status.github.api.reviewed_table_name,
+            Self::Reviewed => &config.github.api.reviewed_table_name,
+            Self::Unreviewed => &config.github.api.reviewed_table_name,
         }
     }
 
-    pub fn osv_format_sql_create_table_command(self, status: &ScraperStatus) -> String {
+    pub fn osv_format_sql_create_table_command(self, config: &Config) -> String {
         csv_postgres_integration::format_sql_create_table_command(
-            self.osv_table_name(status),
+            self.osv_table_name(config),
             GITHUB_ID_SQL_TYPE,
         )
     }

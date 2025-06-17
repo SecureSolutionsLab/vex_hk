@@ -28,6 +28,7 @@ indicatif = { version = "0.17.11", features = ["futures"] }
 indicatif-log-bridge = "0.2.3"
 regex = "1.11.1"
 const_format = "0.2.34"
+anyhow = "1.0.98"
 
 [features]
 "default" = ["osv"]

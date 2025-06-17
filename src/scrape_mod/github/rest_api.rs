@@ -1,10 +1,10 @@
-use std::{fs, io::Write, path::Path};
+use std::{fs, path::Path};
 
+use chrono::Utc;
 use regex::Regex;
 
 use crate::{
-    csv_postgres_integration::GeneralizedCsvRecord, osv_schema::OsvEssentials,
-    scraper_status::ScraperStatus,
+    config::Config, csv_postgres_integration::GeneralizedCsvRecord, osv_schema::OsvEssentials,
 };
 
 use super::{api_response::GitHubAdvisoryAPIResponse, GithubApiDownloadError, GithubType};
@@ -113,6 +113,7 @@ impl<'a> PaginatedGithubAdvisoriesDataIter<'a> {
 ///
 /// Returns the number of total entries.
 pub async fn api_data_after_update_date_single_csv_file(
+    config: &Config,
     client: &reqwest::Client,
     token: &str,
     csv_file_path: &Path,
@@ -136,6 +137,7 @@ pub async fn api_data_after_update_date_single_csv_file(
 
     let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
         client,
+        &config.github.api.url,
         token,
         &[
             ("published", &date.format(">=%Y-%m-%d").to_string()),
@@ -161,15 +163,15 @@ pub async fn api_data_after_update_date_single_csv_file(
 ///
 /// To be used for osv file retrieval
 pub async fn get_only_essential_after_modified_date(
-    status: &ScraperStatus,
+    config: &Config,
     client: &reqwest::Client,
     token: &str,
-    date: chrono::NaiveDate,
+    date: &chrono::DateTime<Utc>,
     ty: GithubType,
 ) -> Result<Vec<OsvEssentials>, GithubApiDownloadError> {
     let mut paginated_iter = PaginatedGithubAdvisoriesDataIter::new(
         client,
-        &status.github.api.url,
+        &config.github.api.url,
         token,
         &[
             ("published", &date.format(">=%Y-%m-%d").to_string()),

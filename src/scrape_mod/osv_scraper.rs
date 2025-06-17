@@ -11,10 +11,10 @@ use thiserror::Error;
 use zip::ZipArchive;
 
 use crate::{
+    config::Config,
     csv_postgres_integration::{self, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
     osv_schema::OSVGeneralized,
-    scraper_status::ScraperStatus,
 };
 
 /// Custom error type for `fetch_osv_details`.
@@ -52,21 +52,20 @@ const OSV_ID_SQL_TYPE: &str = formatcp!("character varying({})", OSV_ID_MAX_CHAR
 ///  - recreate_database_table set to true: Recreate and completely repopulate the table.
 ///  - recreate_database_table set to false: Try to update existing data by inserting or replacing old values with newer ones. This won't delete entries if they for some reason disappear from the full data. This won't create the table if it doesn't exist. This won't check for any previously corrupted data.
 pub async fn scrape_osv_full(
-    status: &mut ScraperStatus,
+    config: &Config,
     client: &reqwest::Client,
     db_connection: sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
     recreate_database_table: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
-    let osv_status = &status.osv;
+    let osv_status = &config.osv;
 
     log::info!("Starting full OSV database download.");
 
-    let download_path = status.temp_dir_path.join(TEMP_DOWNLOAD_FILE_NAME);
-    let csv_path = status.temp_dir_path.join(TEMP_CSV_FILE_NAME);
+    let download_path = config.temp_dir_path.join(TEMP_DOWNLOAD_FILE_NAME);
+    let csv_path = config.temp_dir_path.join(TEMP_CSV_FILE_NAME);
 
-    let start_time = Utc::now();
     download_and_save_to_file_in_chunks(
         client,
         &osv_status.full_data_url,
@@ -128,8 +127,6 @@ pub async fn scrape_osv_full(
     log::info!("Removing temporary files.");
     fs::remove_file(&csv_path)?;
     fs::remove_file(&download_path)?;
-
-    status.save_download_osv_full(start_time);
 
     log::info!(
         "Finished downloading and parsing the full OSV database. Total time: {:?}",
