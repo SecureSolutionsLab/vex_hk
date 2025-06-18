@@ -20,7 +20,7 @@ impl Default for Config {
             github: ConfigGithub::default(),
             tokens: Tokens::default(),
             temp_dir_path: PathBuf::from(defaults::TEMP_DIR_LOCATION),
-            state_file_location: PathBuf::from(defaults::STATE_FILE_LOCATION)
+            state_file_location: PathBuf::from(defaults::STATE_FILE_LOCATION),
         }
     }
 }

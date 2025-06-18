@@ -139,10 +139,17 @@ pub async fn sync(
             )
             .await?
         else {
-            log::warn!("Reviewed update got rate limited. Postponing update. Time: {:?}", update_inst.elapsed());
+            log::warn!(
+                "Reviewed update got rate limited. Postponing update. Time: {:?}",
+                update_inst.elapsed()
+            );
             return Ok(());
         };
-        log::info!("GitHub reviewed OSV table updated. {} rows modified. Time: {:?}", updated_reviewed, update_inst.elapsed());
+        log::info!(
+            "GitHub reviewed OSV table updated. {} rows modified. Time: {:?}",
+            updated_reviewed,
+            update_inst.elapsed()
+        );
         state.save_update_github_osv_reviewed(config, start_time);
 
         let GithubOsvUpdate::AllOk(updated_unreviewed) =
@@ -157,10 +164,17 @@ pub async fn sync(
             )
             .await?
         else {
-            log::warn!("Unreviewed update got rate limited. Postponing update. Time: {:?}", update_inst.elapsed());
+            log::warn!(
+                "Unreviewed update got rate limited. Postponing update. Time: {:?}",
+                update_inst.elapsed()
+            );
             return Ok(());
         };
-        log::info!("GitHub unreviewed OSV table updated. {} rows modified. Time: {:?}", updated_unreviewed, update_inst.elapsed());
+        log::info!(
+            "GitHub unreviewed OSV table updated. {} rows modified. Time: {:?}",
+            updated_unreviewed,
+            update_inst.elapsed()
+        );
         state.save_update_github_osv_unreviewed(config, start_time);
 
         log::info!("GitHub OSV table update finished successfully.");

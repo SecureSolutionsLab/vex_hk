@@ -49,7 +49,11 @@ impl ScraperState {
         self.save(config);
     }
 
-    pub fn save_download_github_osv_full(&mut self, config: &Config, download_start: DateTime<Utc>) {
+    pub fn save_download_github_osv_full(
+        &mut self,
+        config: &Config,
+        download_start: DateTime<Utc>,
+    ) {
         self.github.osv.last_update_timestamp_reviewed = Some(download_start);
         self.github.osv.last_update_timestamp_unreviewed = Some(download_start);
         self.github.osv.initialized = true;
@@ -62,7 +66,11 @@ impl ScraperState {
         self.save(config);
     }
 
-    pub fn save_update_github_osv_unreviewed(&mut self, config: &Config, start_time: DateTime<Utc>) {
+    pub fn save_update_github_osv_unreviewed(
+        &mut self,
+        config: &Config,
+        start_time: DateTime<Utc>,
+    ) {
         assert_eq!(self.github.osv.initialized, true);
         self.github.osv.last_update_timestamp_unreviewed = Some(start_time);
         self.save(config);
