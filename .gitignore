@@ -1,9 +1,6 @@
 # Binaries for programs and libraries
 /target/
 
-# If you have the `Cargo.lock` file in your project, comment the next line if you want to track it
-Cargo.lock
-
 # Backup and swap files created by editors like vim
 *.swp
 *.swo

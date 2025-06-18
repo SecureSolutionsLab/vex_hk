@@ -46,10 +46,13 @@ const EMPTY: i64 = 0;
 
 const GITHUB_TOKEN_LOCATION: &str = "./tokens/github";
 
+pub mod config;
 pub mod csv_postgres_integration;
 mod db_api;
+pub mod default_config;
 mod download;
 pub mod scrape_mod;
+pub mod state;
 mod utils;
 
 pub use db_api::consts;
@@ -171,20 +174,20 @@ pub async fn _exploitdb_scraper() {
     };
 }
 
-#[cfg(feature = "osv")]
-pub async fn osv_scraper(pg_bars: &indicatif::MultiProgress) {
-    // todo: unhandled errors
+// #[cfg(feature = "osv")]
+// pub async fn osv_scraper(pg_bars: &indicatif::MultiProgress) {
+//     // todo: unhandled errors
 
-    use sqlx::Executor;
+//     use sqlx::Executor;
 
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+//     let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
 
-    let client = reqwest::Client::new();
+//     let client = reqwest::Client::new();
 
-    scrape_mod::osv_scraper::scrape_osv_full(&client, db_conn, pg_bars, true)
-        .await
-        .unwrap();
-}
+//     scrape_mod::osv_scraper::scrape_osv_full(&client, db_conn, pg_bars, true)
+//         .await
+//         .unwrap();
+// }
 
 // todo: this kind of sucks
 // pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {

@@ -5,21 +5,172 @@ use std::{
     time::Instant,
 };
 
+use chrono::Utc;
 use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 use zip::ZipArchive;
 
 use crate::{
+    config::Config,
     csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
-    scrape_mod::github::GithubType,
+    scrape_mod::github::{
+        individual_rep_osv::GithubOsvUpdate, GithubType, TEMP_CSV_FILE_REVIEWED_NAME,
+        TEMP_CSV_FILE_UNREVIEWED_NAME, TEMP_DOWNLOAD_FILE_NAME,
+    },
+    state::ScraperState,
 };
 
-use super::{
-    OSVGitHubExtended, GITHUB_ID_CHARACTERS, REPOSITORY_URL, TEMP_CSV_FILE_PATH_REVIEWED,
-    TEMP_CSV_FILE_PATH_UNREVIEWED, TEMP_DOWNLOAD_FILE_PATH,
-};
+use super::{OSVGitHubExtended, GITHUB_ID_CHARACTERS};
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
+
+/// See [download_osv_full] for more information
+///
+/// This function saves scraper state
+pub async fn manual_download_and_save_state(
+    config: &Config,
+    client: &reqwest::Client,
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    pg_bars: &indicatif::MultiProgress,
+    state: &mut ScraperState,
+) -> anyhow::Result<()> {
+    let start_time = Utc::now();
+    download_osv_full(config, client, db_connection, pg_bars, true).await?;
+    state.save_download_github_osv_full(config, start_time);
+    Ok(())
+}
+
+/// Perform download or update with regards to config and state
+pub async fn sync(
+    config: &Config,
+    client: &reqwest::Client,
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    pg_bars: &indicatif::MultiProgress,
+    state: &mut ScraperState,
+) -> anyhow::Result<()> {
+    if !config.github.osv.enable_update {
+        log::warn!("GitHub OSV sync called even though config is disabled. Continuing anyways.");
+    }
+
+    if !state.github.osv.initialized {
+        log::info!("GitHub OSV is not initialized. Performing initial download.");
+        return manual_download_and_save_state(config, client, db_connection, pg_bars, state).await;
+    }
+
+    if config.github.osv.use_api_for_update {
+        let Some(token) = config.tokens.github.as_ref() else {
+            return Err(anyhow::anyhow!(
+                "GitHub use_api_for_update enabled but API token not set. Bailing out."
+            ));
+        };
+        let Some(last_timestamp_reviewed) =
+            state.github.osv.last_update_timestamp_reviewed.as_ref()
+        else {
+            log::error!("GitHub OSV initialized, however last_timestamp_unreviewed is null. Data may be corrupted. Redownloading.");
+            state.github.osv.initialized = false;
+            return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
+                .await;
+        };
+        let Some(last_timestamp_unreviewed) =
+            state.github.osv.last_update_timestamp_unreviewed.as_ref()
+        else {
+            log::error!("GitHub OSV initialized, however last_timestamp_reviewed is null. Data may be corrupted. Redownloading.");
+            state.github.osv.initialized = false;
+            return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
+                .await;
+        };
+
+        let start_time = Utc::now();
+        let update_inst = Instant::now();
+
+        let essentials_inst = update_inst.clone();
+        log::info!(
+            "Requesting a list of reviewed modified advisories after {}",
+            last_timestamp_reviewed.format("%Y/%m/%d")
+        );
+        let essentials_reviewed = super::rest_api::get_only_essential_after_modified_date(
+            config,
+            client,
+            token,
+            last_timestamp_reviewed,
+            GithubType::Reviewed,
+        )
+        .await?;
+        log::info!(
+            "Requesting a list of unreviewed modified advisories after {}",
+            last_timestamp_reviewed.format("%Y/%m/%d")
+        );
+        let essentials_unreviewed = super::rest_api::get_only_essential_after_modified_date(
+            config,
+            client,
+            token,
+            last_timestamp_unreviewed,
+            GithubType::Unreviewed,
+        )
+        .await?;
+        log::info!(
+            "Request finished. Total time: {:?}. Total number of advisories: {} reviewed, {} unreviewed)",
+            essentials_inst.elapsed(),
+            essentials_reviewed.len(),
+            essentials_unreviewed.len()
+        );
+
+        if essentials_reviewed.len() + essentials_unreviewed.len()
+            >= config.github.osv.full_download_threshold
+        {
+            log::warn!(
+                "Threshold reached for API to OSV updates ({} >= {}). Performing full download.",
+                essentials_reviewed.len() + essentials_unreviewed.len(),
+                config.github.osv.full_download_threshold
+            );
+            return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
+                .await;
+        }
+
+        let GithubOsvUpdate::AllOk(updated_reviewed) =
+            super::individual_rep_osv::update_osv_database_incremental(
+                config,
+                db_connection,
+                pg_bars,
+                client,
+                token,
+                GithubType::Reviewed,
+                essentials_reviewed,
+            )
+            .await?
+        else {
+            log::warn!("Reviewed update got rate limited. Postponing update. Time: {:?}", update_inst.elapsed());
+            return Ok(());
+        };
+        log::info!("GitHub reviewed OSV table updated. {} rows modified. Time: {:?}", updated_reviewed, update_inst.elapsed());
+        state.save_update_github_osv_reviewed(config, start_time);
+
+        let GithubOsvUpdate::AllOk(updated_unreviewed) =
+            super::individual_rep_osv::update_osv_database_incremental(
+                config,
+                db_connection,
+                pg_bars,
+                client,
+                token,
+                GithubType::Unreviewed,
+                essentials_unreviewed,
+            )
+            .await?
+        else {
+            log::warn!("Unreviewed update got rate limited. Postponing update. Time: {:?}", update_inst.elapsed());
+            return Ok(());
+        };
+        log::info!("GitHub unreviewed OSV table updated. {} rows modified. Time: {:?}", updated_unreviewed, update_inst.elapsed());
+        state.save_update_github_osv_unreviewed(config, start_time);
+
+        log::info!("GitHub OSV table update finished successfully.");
+    } else {
+        log::info!("GitHub OSV API update disabled. Performing full download.");
+        return manual_download_and_save_state(config, client, db_connection, pg_bars, state).await;
+    }
+
+    Ok(())
+}
 
 /// Download repository data from [REPOSITORY_URL] and send it to [crate::consts::GITHUB_OSV_REVIEWED_TABLE_NAME] for reviewed amd [crate::consts::GITHUB_OSV_UNREVIEWED_TABLE_NAME] tables for reviewed and unreviewed advisories, respectfully.
 ///
@@ -30,30 +181,26 @@ const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 ///  - recreate_database_table set to true: Recreate both tables and completely repopulate them.
 ///  - recreate_database_table set to false: Try to update existing data by inserting or replacing old values with newer ones. This won't delete entries if they for some reason disappear from the repository. This won't create the tables if they don't exist. This won't check for any previously corrupted data.
 pub async fn download_osv_full(
+    config: &Config,
     client: &reqwest::Client,
     db_connection: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
     recreate_database_table: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let start = Instant::now();
 
     log::info!("Starting a download a full copy of Github Advisory database.");
 
-    let download_path = Path::new(TEMP_DOWNLOAD_FILE_PATH);
-    let csv_path_reviewed = Path::new(TEMP_CSV_FILE_PATH_REVIEWED);
-    let csv_path_unreviewed = Path::new(TEMP_CSV_FILE_PATH_UNREVIEWED);
+    let download_path = config.temp_dir_path.join(TEMP_DOWNLOAD_FILE_NAME);
+    let csv_path_reviewed = config.temp_dir_path.join(TEMP_CSV_FILE_REVIEWED_NAME);
+    let csv_path_unreviewed = config.temp_dir_path.join(TEMP_CSV_FILE_UNREVIEWED_NAME);
 
-    download_and_save_to_file_in_chunks(
-        client,
-        REPOSITORY_URL,
-        Path::new(TEMP_DOWNLOAD_FILE_PATH),
-        &pg_bars,
-    )
-    .await?;
+    download_and_save_to_file_in_chunks(client, &config.github.osv.url, &download_path, &pg_bars)
+        .await?;
     let (row_count_reviewed, row_count_unreviewed) = create_csv(
-        download_path,
-        csv_path_reviewed,
-        csv_path_unreviewed,
+        &download_path,
+        &csv_path_reviewed,
+        &csv_path_unreviewed,
         pg_bars,
     )
     .await?;
@@ -64,16 +211,11 @@ pub async fn download_osv_full(
         db_connection
             .execute(
                 QueryBuilder::<Postgres>::new(format!(
-                    "
-DROP TABLE IF EXISTS \"{}\";
-DROP TABLE IF EXISTS \"{}\";
-{}
-{}
-        ",
-                    GithubType::Reviewed.osv_table_name(),
-                    GithubType::Unreviewed.osv_table_name(),
-                    GithubType::Reviewed.create_table_sql_text(),
-                    GithubType::Unreviewed.create_table_sql_text(),
+                    "DROP TABLE IF EXISTS \"{}\";\nDROP TABLE IF EXISTS \"{}\";\n{}\n{}",
+                    GithubType::Reviewed.osv_table_name(config),
+                    GithubType::Unreviewed.osv_table_name(config),
+                    GithubType::Reviewed.osv_format_sql_create_table_command(config),
+                    GithubType::Unreviewed.osv_format_sql_create_table_command(config),
                 ))
                 .build()
                 .sql(),
@@ -81,8 +223,8 @@ DROP TABLE IF EXISTS \"{}\";
             .await?;
         log::info!(
         "Creating new Github Advisories tables for GitHub-reviewed and unreviewed advisories, with names \"{}\" and \"{}\"",
-        GithubType::Reviewed.osv_table_name(),
-        GithubType::Unreviewed.osv_table_name()
+        GithubType::Reviewed.osv_table_name(config),
+        GithubType::Unreviewed.osv_table_name(config)
     );
         log::info!(
             "Finished recreating database table. Time: {:?}",
@@ -91,15 +233,15 @@ DROP TABLE IF EXISTS \"{}\";
 
         csv_postgres_integration::send_csv_to_database_whole(
             &db_connection,
-            csv_path_reviewed,
-            GithubType::Reviewed.osv_table_name(),
+            &csv_path_reviewed,
+            GithubType::Reviewed.osv_table_name(config),
             row_count_reviewed,
         )
         .await?;
         csv_postgres_integration::send_csv_to_database_whole(
             &db_connection,
-            csv_path_unreviewed,
-            GithubType::Unreviewed.osv_table_name(),
+            &csv_path_unreviewed,
+            GithubType::Unreviewed.osv_table_name(config),
             row_count_unreviewed,
         )
         .await?;
@@ -112,26 +254,27 @@ DROP TABLE IF EXISTS \"{}\";
 
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
             &db_connection,
-            csv_path_reviewed,
-            GithubType::Reviewed.osv_table_name(),
+            &csv_path_reviewed,
+            GithubType::Reviewed.osv_table_name(config),
         )
         .await?;
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
             &db_connection,
-            csv_path_unreviewed,
-            GithubType::Unreviewed.osv_table_name(),
+            &csv_path_unreviewed,
+            GithubType::Unreviewed.osv_table_name(config),
         )
         .await?;
     }
+
+    log::info!("Removing temporary files");
+    fs::remove_file(download_path)?;
+    fs::remove_file(csv_path_reviewed)?;
+    fs::remove_file(csv_path_unreviewed)?;
 
     log::info!(
         "Finished downloading and parsing the full OSV database. Total time: {:?}",
         start.elapsed()
     );
-
-    fs::remove_file(TEMP_DOWNLOAD_FILE_PATH)?;
-    fs::remove_file(TEMP_CSV_FILE_PATH_REVIEWED)?;
-    fs::remove_file(TEMP_CSV_FILE_PATH_UNREVIEWED)?;
     Ok(())
 }
 

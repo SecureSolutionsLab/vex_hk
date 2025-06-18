@@ -19,12 +19,10 @@ use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolCopyExt, Execute, Executor, Postgres, QueryBuilder};
 
-use crate::osv_schema::{OsvEssentials, OSV};
-
-/// Temporary table name created during some operations
-///
-/// Only exists during transactions
-pub const TEMP_TABLE_NAME: &str = "vex_tmp";
+use crate::{
+    default_config,
+    osv_schema::{OsvEssentials, OSV},
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CsvCreationError {
@@ -36,6 +34,18 @@ pub enum CsvCreationError {
     ZipArchiveReading(#[from] zip::result::ZipError),
     #[error("CSV error: {0}")]
     Csv(#[from] csv::Error),
+}
+
+pub fn format_sql_create_table_command(table_name: &str, id_sql_type: &str) -> String {
+    format!(
+        "CREATE TABLE \"{}\" (
+            \"id\" {} PRIMARY KEY,
+            \"published\" TIMESTAMPTZ NOT NULL,
+            \"modified\" TIMESTAMPTZ NOT NULL,
+            \"data\" JSONB NOT NULL
+        );",
+        table_name, id_sql_type
+    )
 }
 
 /// Generalized row information to be set to a database
@@ -168,10 +178,11 @@ async fn update_with_temp_table(
         .execute(
             QueryBuilder::<Postgres>::new(format!(
                 "
-CREATE TEMP TABLE \"{TEMP_TABLE_NAME}\" 
+CREATE TEMP TABLE \"{}\" 
 (LIKE \"{}\" INCLUDING DEFAULTS)
 ON COMMIT DROP;
         ",
+                default_config::TEMP_TABLE_NAME,
                 table_name
             ))
             .build()
@@ -185,7 +196,7 @@ ON COMMIT DROP;
         let mut copy_conn = tx_conn
             .copy_in_raw(&format!(
                 "COPY \"{}\" FROM STDIN (FORMAT csv, DELIMITER ',')",
-                TEMP_TABLE_NAME
+                default_config::TEMP_TABLE_NAME
             ))
             .await?;
         let file = tokio::fs::File::open(file_path).await?;
@@ -234,13 +245,14 @@ pub async fn insert_and_replace_any_in_database_from_csv(
             "
 INSERT INTO \"{}\" (id, published, modified, data)
 SELECT *
-FROM \"{TEMP_TABLE_NAME}\"
+FROM \"{}\"
 ON CONFLICT (id) DO UPDATE 
     SET published = excluded.published,
         modified  = excluded.modified,
         data      = excluded.data;
         ",
-            table_name
+            table_name,
+            default_config::TEMP_TABLE_NAME
         )),
     )
     .await
@@ -264,14 +276,15 @@ pub async fn insert_and_replace_older_entries_in_database_from_csv(
             "
 INSERT INTO \"{}\" AS orig (id, published, modified, data)
 SELECT *
-FROM \"{TEMP_TABLE_NAME}\"
+FROM \"{}\"
 ON CONFLICT (id) DO UPDATE 
     SET published = excluded.published,
         modified  = excluded.modified,
         data      = excluded.data
             WHERE orig.modified < excluded.modified;
         ",
-            table_name
+            table_name,
+            default_config::TEMP_TABLE_NAME
         )),
     )
     .await

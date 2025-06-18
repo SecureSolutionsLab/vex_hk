@@ -1,14 +1,12 @@
 use std::{collections::HashMap, fs, path::Path, time::Instant};
 
-use chrono::{NaiveDate, Utc};
+use chrono::Utc;
 
 use crate::{
+    config::Config,
     csv_postgres_integration::{self, GeneralizedCsvRecord},
     osv_schema::OsvEssentials,
-    scrape_mod::github::{
-        rest_api::get_only_essential_after_modified_date, OSVGitHubExtended, API_REQUESTS_LIMIT,
-        MIN_TIME_BETWEEN_REQUESTS,
-    },
+    scrape_mod::github::{OSVGitHubExtended, API_REQUESTS_LIMIT, MIN_TIME_BETWEEN_REQUESTS},
 };
 
 use super::{GithubApiDownloadError, GithubType};
@@ -129,7 +127,7 @@ pub async fn get_single_osv_file_data(
 
 /// # Attempt to update GitHub OSV database, without downloading the full repository, with the use of the API
 ///
-/// This function will attempt to get a list of possible files that got updated after a specific date (inclusive, meaning files updated on that specific day are included) and download each file individually so that the OSV database can be updated without redownloading the entire repository.
+/// This function will attempt to manually download all files from the given ids and add them to the database.
 ///
 /// To help mitigate possible errors and too many requests, this function saves downloaded data and can continue in the case that the download gets interrupted. See [download_repository_files_into_osv_from_list_incremental] for details.
 ///
@@ -139,35 +137,26 @@ pub async fn get_single_osv_file_data(
 ///
 /// This function assumes that the database table already exists (it would be a bad idea to try to download the entire repository this way, when [super::repository] exists).
 pub async fn update_osv_database_incremental(
+    config: &Config,
     db_connection: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
     client: &reqwest::Client,
     token: &str,
-    date: NaiveDate,
     ty: GithubType,
+    essentials: Vec<OsvEssentials>,
 ) -> Result<GithubOsvUpdate, FileUpdateError> {
     let start = Instant::now();
     log::info!("Starting GitHub OSV file update.");
 
-    let essentials_inst = Instant::now();
-    log::info!(
-        "Requesting a list of modified advisories after {}",
-        date.format("%Y/%m/%d")
-    );
-    let essentials = get_only_essential_after_modified_date(client, token, date, ty).await?;
-    log::info!(
-        "Request finished. Total time: {:?}. Total number of advisories: {}",
-        essentials_inst.elapsed(),
-        essentials.len()
-    );
-    let update_path = Path::new(ty.csv_update_path());
+    let update_path = &config.temp_dir_path.join(ty.csv_update_path());
+    let update_path_tmp = &config.temp_dir_path.join(ty.csv_update_path());
     let update = download_repository_files_into_osv_from_list_incremental(
         client,
         token,
         &essentials,
         ty,
         update_path,
-        Path::new(ty.csv_update_path_temp()),
+        update_path_tmp,
         pg_bars,
     )
     .await?;
@@ -182,9 +171,10 @@ pub async fn update_osv_database_incremental(
                 csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
                     db_connection,
                     update_path,
-                    ty.osv_table_name(),
+                    ty.osv_table_name(config),
                 )
                 .await?;
+            fs::remove_file(update_path).map_err(|err| FileUpdateError::ApiError(err.into()))?;
             log::info!(
                 "Update successfully completed. Total time: {:?}. Number of updated rows: {}",
                 start.elapsed(),

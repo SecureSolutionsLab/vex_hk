@@ -15,42 +15,24 @@ pub mod rest_api;
 
 use std::{fmt::Display, time::Duration};
 
-use const_format::{concatcp, formatcp};
+use const_format::formatcp;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    consts::{
-        GITHUB_API_REVIEWED_TABLE_NAME, GITHUB_API_UNREVIEWED_TABLE_NAME,
-        GITHUB_OSV_REVIEWED_TABLE_NAME, GITHUB_OSV_UNREVIEWED_TABLE_NAME,
-    },
-    download::DownloadError,
-    osv_schema::OSV,
-};
+use crate::{config::Config, csv_postgres_integration, download::DownloadError, osv_schema::OSV};
 
-/// Location of the directory / folder where temporary files are created. This can get quite big depending on operations.
-pub const TEMP_PATH_DIR: &str = "/zmnt/vex/";
+const TEMP_DOWNLOAD_FILE_NAME: &str = "github_all_temp.zip";
+const TEMP_CSV_FILE_REVIEWED_NAME: &str = "github_reviewed_temp.csv";
+const TEMP_CSV_FILE_UNREVIEWED_NAME: &str = "github_unreviewed_temp.csv";
 
-const TEMP_DOWNLOAD_FILE_PATH: &str = concatcp!(TEMP_PATH_DIR, "github_all_temp.zip");
-const TEMP_CSV_FILE_PATH_REVIEWED: &str = concatcp!(TEMP_PATH_DIR, "github_reviewed_temp.csv");
-const TEMP_CSV_FILE_PATH_UNREVIEWED: &str = concatcp!(TEMP_PATH_DIR, "github_unreviewed_temp.csv");
-
-const UPDATE_CSV_FILE_PATH_REVIEWED: &str = concatcp!(TEMP_PATH_DIR, "github_update_reviewed.csv");
-const UPDATE_CSV_FILE_PATH_UNREVIEWED: &str =
-    concatcp!(TEMP_PATH_DIR, "github_update_unreviewed.csv");
-const TEMP_UPDATE_CSV_FILE_PATH_REVIEWED: &str =
-    concatcp!(TEMP_PATH_DIR, "github_update_reviewed_temp.csv");
-const TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED: &str =
-    concatcp!(TEMP_PATH_DIR, "github_update_unreviewed_temp.csv");
-
-// url refers to the "zip file download" of the repository
-pub const REPOSITORY_URL: &str =
-    "https://github.com/github/advisory-database/archive/refs/heads/main.zip";
-
-pub const API_URL: &str = "https://api.github.com/advisories";
+const UPDATE_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed.csv";
+const UPDATE_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed.csv";
+const TEMP_UPDATE_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed_temp.csv";
+const TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed_temp.csv";
 
 // https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database
 // ids come in the format of GHSA-xxxx-xxxx-xxxx
 const GITHUB_ID_CHARACTERS: usize = 19;
+const GITHUB_ID_SQL_TYPE: &str = formatcp!("CHARACTER({})", GITHUB_ID_CHARACTERS);
 
 // max 900 request per minute (60 / 900)
 const MIN_TIME_BETWEEN_REQUESTS: Duration = Duration::new(0, 66666667);
@@ -124,44 +106,25 @@ impl GithubType {
         }
     }
 
-    pub const fn osv_table_name(self) -> &'static str {
+    pub fn osv_table_name(self, config: &Config) -> &str {
         match self {
-            Self::Reviewed => GITHUB_OSV_REVIEWED_TABLE_NAME,
-            Self::Unreviewed => GITHUB_OSV_UNREVIEWED_TABLE_NAME,
+            Self::Reviewed => &config.github.osv.reviewed_table_name,
+            Self::Unreviewed => &config.github.osv.unreviewed_table_name,
         }
     }
 
-    pub const fn api_table_name(self) -> &'static str {
+    pub fn api_table_name(self, config: &Config) -> &str {
         match self {
-            Self::Reviewed => GITHUB_API_REVIEWED_TABLE_NAME,
-            Self::Unreviewed => GITHUB_API_UNREVIEWED_TABLE_NAME,
+            Self::Reviewed => &config.github.api.reviewed_table_name,
+            Self::Unreviewed => &config.github.api.reviewed_table_name,
         }
     }
 
-    pub const fn create_table_sql_text(self) -> &'static str {
-        // working with consts makes this really finicky
-        // if attempting to update, take care to not mess up formatcp arguments
-        // WARNING: do not change without checking how CSV data is loaded.
-        match self {
-            Self::Reviewed => formatcp!(
-                "CREATE TABLE \"{}\" (
-                    \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
-                    \"published\" TIMESTAMPTZ NOT NULL,
-                    \"modified\" TIMESTAMPTZ NOT NULL,
-                    \"data\" JSONB NOT NULL
-                );",
-                GITHUB_API_REVIEWED_TABLE_NAME
-            ),
-            Self::Unreviewed => formatcp!(
-                "CREATE TABLE \"{}\" (
-                    \"id\" CHARACTER({GITHUB_ID_CHARACTERS}) PRIMARY KEY,
-                    \"published\" TIMESTAMPTZ NOT NULL,
-                    \"modified\" TIMESTAMPTZ NOT NULL,
-                    \"data\" JSONB NOT NULL
-                );",
-                GITHUB_API_UNREVIEWED_TABLE_NAME
-            ),
-        }
+    pub fn osv_format_sql_create_table_command(self, config: &Config) -> String {
+        csv_postgres_integration::format_sql_create_table_command(
+            self.osv_table_name(config),
+            GITHUB_ID_SQL_TYPE,
+        )
     }
 }
 
