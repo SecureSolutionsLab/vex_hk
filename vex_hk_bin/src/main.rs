@@ -20,8 +20,10 @@ struct Cli {
     #[arg(short, long)]
     github_sync_manual: bool,
 
-    #[arg(short, long)]
-    osv_just_download: bool,
+    #[arg(long)]
+    osv_download_manual: bool,
+    #[arg(long)]
+    osv_update_manual: bool,
 }
 
 fn read_config(path: &Path) -> anyhow::Result<Config> {
@@ -83,9 +85,16 @@ async fn main() -> anyhow::Result<()> {
         .await;
     }
 
-    if args.osv_just_download {
+    if args.osv_download_manual {
         log::info!("Downloading osv and recreating the table");
         return vex_hk::scrape_mod::osv::manual_download_and_save_state(
+            &config, &client, &db_conn, &pg_bars, &mut state,
+        )
+        .await;
+    }
+    if args.osv_update_manual {
+        log::info!("Attempting to manually update OSV");
+        return vex_hk::scrape_mod::osv::manual_update_and_save_state(
             &config, &client, &db_conn, &pg_bars, &mut state,
         )
         .await;

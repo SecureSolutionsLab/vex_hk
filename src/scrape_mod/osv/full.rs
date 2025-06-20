@@ -31,7 +31,7 @@ pub async fn manual_download_and_save_state(
 ) -> anyhow::Result<()> {
     let start_time = Utc::now();
     scrape_osv_full(config, client, db_connection, pg_bars, true).await?;
-    state.save_download_osv_full(config, start_time);
+    state.save_osv(config, start_time);
     Ok(())
 }
 

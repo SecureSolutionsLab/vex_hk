@@ -9,7 +9,36 @@ use crate::{
     db_api::structs::{EntryInput, EntryStatus},
     osv_schema::OSVGeneralized,
     scrape_mod::structs::Sitemap,
+    state::ScraperState,
 };
+
+/// See [scrape_osv_full] for more information
+///
+/// This function saves scraper state
+pub async fn manual_update_and_save_state(
+    config: &Config,
+    client: &reqwest::Client,
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    _pg_bars: &indicatif::MultiProgress,
+    state: &mut ScraperState,
+) -> anyhow::Result<()> {
+    if !state.osv.initialized {
+        return Err(anyhow::anyhow!(
+            "OSV is not initialized. Perform a full download first."
+        ));
+    }
+
+    let start_time = Utc::now();
+    let Some(last_timestamp) = state.osv.last_update_timestamp else {
+        return Err(anyhow::anyhow!(
+            "last_timestamp is missing. This may be a bug. Perform a full redownload."
+        ));
+    };
+
+    scrape_osv_update(config, client, db_connection, last_timestamp).await?;
+    state.save_osv(config, start_time);
+    Ok(())
+}
 
 /// Updates the OSV database by checking for missing or stale OSV entries and then
 /// fetching and inserting updated records.
@@ -52,7 +81,7 @@ use crate::{
 pub async fn scrape_osv_update(
     config: &Config,
     client: &reqwest::Client,
-    db_connection: sqlx::Pool<sqlx::Postgres>,
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
     last_timestamp: DateTime<Utc>,
 ) -> anyhow::Result<()> {
     // Parse the OSV index and filter ecosystem sitemaps newer than the stored timestamp.

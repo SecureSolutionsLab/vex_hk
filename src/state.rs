@@ -43,7 +43,7 @@ impl ScraperState {
         }
     }
 
-    pub fn save_download_osv_full(&mut self, config: &Config, download_start: DateTime<Utc>) {
+    pub fn save_osv(&mut self, config: &Config, download_start: DateTime<Utc>) {
         self.osv.last_update_timestamp = Some(download_start);
         self.osv.initialized = true;
         self.save(config);

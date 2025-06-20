@@ -4,6 +4,7 @@ mod full;
 mod update;
 
 pub use full::manual_download_and_save_state;
+pub use update::manual_update_and_save_state;
 
 const TEMP_DOWNLOAD_FILE_NAME: &str = "osv_all_temp.zip";
 const TEMP_CSV_FILE_NAME: &str = "osv_temp.csv";
