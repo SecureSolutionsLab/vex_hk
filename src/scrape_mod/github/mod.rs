@@ -12,10 +12,12 @@ pub mod api_response;
 pub mod individual_rep_osv;
 pub mod repository;
 pub mod rest_api;
+mod paginated_api;
 
 use std::{fmt::Display, time::Duration};
 
 use const_format::formatcp;
+use paginated_api::PaginatedApiDataIterError;
 use serde::{Deserialize, Serialize};
 
 use crate::{config::Config, csv_postgres_integration, download::DownloadError, osv_schema::OSV};
@@ -138,8 +140,10 @@ impl Display for GithubType {
 pub enum GithubApiDownloadError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    #[error("Reqwest HTTP Error: {0}")]
+    #[error("Failed single HTTP Request (Reqwest error): {0}")]
     Reqwest(#[from] reqwest::Error),
+    #[error("Failed to retrieve paginated data:\n{0}")]
+    PaginatedApiDataIter(#[from] PaginatedApiDataIterError),
     #[error("Failed to serialize data to json:\n{0}")]
     Serialization(#[from] serde_json::Error),
     #[error("CSV error: {0}")]

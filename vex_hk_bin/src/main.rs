@@ -24,6 +24,9 @@ struct Cli {
     osv_download_manual: bool,
     #[arg(long)]
     osv_update_manual: bool,
+
+    #[arg(long)]
+    a: bool,
 }
 
 fn read_config(path: &Path) -> anyhow::Result<Config> {
@@ -59,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
     LogWrapper::new(pg_bars.clone(), logger).try_init().unwrap();
     log::set_max_level(level);
 
+    log::debug!("Parsing arguments");
     let args = Cli::parse();
     if args.regenerate_config {
         println!("Generating default config at {:?}.", args.config);
@@ -72,10 +76,29 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let config = read_config(&args.config)?;
+    let config = read_config(&args.config).map_err(|err| {
+        anyhow::anyhow!(
+            "Failed to read config {:?}. Config misstructured or corrupted.\n{}",
+            args.config,
+            err
+        )
+    })?;
     let mut state = read_state(&config)?;
     let db_conn = vex_hk::get_db_connection().await.unwrap();
     let client = reqwest::Client::new();
+
+    if args.a {
+        let a = vex_hk::scrape_mod::github::rest_api::get_commits(
+            &config,
+            &client,
+            config.tokens.github.as_ref().unwrap(),
+            &chrono::Utc::now()
+                .checked_sub_days(chrono::Days::new(7))
+                .unwrap(),
+        )
+        .await;
+        println!("{}", a.unwrap_err());
+    }
 
     if args.github_sync_manual {
         log::info!("Starting GitHub OSV manual sync");
