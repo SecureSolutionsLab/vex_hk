@@ -9,13 +9,14 @@ use std::{
 };
 use zip::ZipArchive;
 
+use super::{OSV_ID_MAX_CHARACTERS, OSV_ID_SQL_TYPE, TEMP_CSV_FILE_NAME, TEMP_DOWNLOAD_FILE_NAME};
 use crate::{
     config::Config,
     csv_postgres_integration::{self, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
-    osv_schema::OSVGeneralized, state::ScraperState,
+    osv_schema::OSVGeneralized,
+    state::ScraperState,
 };
-use super::{TEMP_DOWNLOAD_FILE_NAME, TEMP_CSV_FILE_NAME, OSV_ID_SQL_TYPE, OSV_ID_MAX_CHARACTERS};
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 

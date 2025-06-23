@@ -19,10 +19,7 @@ use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolCopyExt, Execute, Executor, Postgres, QueryBuilder};
 
-use crate::{
-    default_config,
-    osv_schema::{OsvEssentials, OSV},
-};
+use crate::{default_config, osv_schema::OSV};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CsvCreationError {
@@ -103,19 +100,6 @@ impl GeneralizedCsvRecord {
         record
             .deserialize(None)
             .expect("Failed to convert csv record to row struct")
-    }
-
-    /// Serialize data to essentials for comparing advisories
-    pub fn to_essentials(self) -> OsvEssentials {
-        OsvEssentials::new(
-            self.id,
-            DateTime::parse_from_rfc3339(&self.published)
-                .expect("Invalid OsvCsvRow published date")
-                .to_utc(),
-            DateTime::parse_from_rfc3339(&self.modified)
-                .expect("Invalid OsvCsvRow modified date")
-                .to_utc(),
-        )
     }
 }
 

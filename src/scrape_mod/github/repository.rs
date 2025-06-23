@@ -14,8 +14,8 @@ use crate::{
     csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
     scrape_mod::github::{
-        individual_rep_osv::GithubOsvUpdate, GithubType, TEMP_CSV_FILE_REVIEWED_NAME,
-        TEMP_CSV_FILE_UNREVIEWED_NAME, TEMP_DOWNLOAD_FILE_NAME,
+        GithubType, TEMP_CSV_FILE_REVIEWED_NAME, TEMP_CSV_FILE_UNREVIEWED_NAME,
+        TEMP_DOWNLOAD_FILE_NAME,
     },
     state::ScraperState,
 };
@@ -57,131 +57,132 @@ pub async fn sync(
         return manual_download_and_save_state(config, client, db_connection, pg_bars, state).await;
     }
 
-    if config.github.osv.use_api_for_update {
-        let Some(token) = config.tokens.github.as_ref() else {
-            return Err(anyhow::anyhow!(
-                "GitHub use_api_for_update enabled but API token not set. Bailing out."
-            ));
-        };
-        let Some(last_timestamp_reviewed) =
-            state.github.osv.last_update_timestamp_reviewed.as_ref()
-        else {
-            log::error!("GitHub OSV initialized, however last_timestamp_unreviewed is null. Data may be corrupted. Redownloading.");
-            state.github.osv.initialized = false;
-            return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
-                .await;
-        };
-        let Some(last_timestamp_unreviewed) =
-            state.github.osv.last_update_timestamp_unreviewed.as_ref()
-        else {
-            log::error!("GitHub OSV initialized, however last_timestamp_reviewed is null. Data may be corrupted. Redownloading.");
-            state.github.osv.initialized = false;
-            return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
-                .await;
-        };
+    todo!();
+    // if config.github.osv.use_api_for_update {
+    //     let Some(token) = config.tokens.github.as_ref() else {
+    //         return Err(anyhow::anyhow!(
+    //             "GitHub use_api_for_update enabled but API token not set. Bailing out."
+    //         ));
+    //     };
+    //     let Some(last_timestamp_reviewed) =
+    //         state.github.osv.last_update_timestamp_reviewed.as_ref()
+    //     else {
+    //         log::error!("GitHub OSV initialized, however last_timestamp_unreviewed is null. Data may be corrupted. Redownloading.");
+    //         state.github.osv.initialized = false;
+    //         return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
+    //             .await;
+    //     };
+    //     let Some(last_timestamp_unreviewed) =
+    //         state.github.osv.last_update_timestamp_unreviewed.as_ref()
+    //     else {
+    //         log::error!("GitHub OSV initialized, however last_timestamp_reviewed is null. Data may be corrupted. Redownloading.");
+    //         state.github.osv.initialized = false;
+    //         return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
+    //             .await;
+    //     };
 
-        let start_time = Utc::now();
-        let update_inst = Instant::now();
+    //     let start_time = Utc::now();
+    //     let update_inst = Instant::now();
 
-        let essentials_inst = update_inst.clone();
-        log::info!(
-            "Requesting a list of reviewed modified advisories after {}",
-            last_timestamp_reviewed.format("%Y/%m/%d")
-        );
-        let essentials_reviewed = super::rest_api::get_only_essential_after_modified_date(
-            config,
-            client,
-            token,
-            last_timestamp_reviewed,
-            GithubType::Reviewed,
-        )
-        .await?;
-        log::info!(
-            "Requesting a list of unreviewed modified advisories after {}",
-            last_timestamp_reviewed.format("%Y/%m/%d")
-        );
-        let essentials_unreviewed = super::rest_api::get_only_essential_after_modified_date(
-            config,
-            client,
-            token,
-            last_timestamp_unreviewed,
-            GithubType::Unreviewed,
-        )
-        .await?;
-        log::info!(
-            "Request finished. Total time: {:?}. Total number of advisories: {} reviewed, {} unreviewed)",
-            essentials_inst.elapsed(),
-            essentials_reviewed.len(),
-            essentials_unreviewed.len()
-        );
+    //     let essentials_inst = update_inst.clone();
+    //     log::info!(
+    //         "Requesting a list of reviewed modified advisories after {}",
+    //         last_timestamp_reviewed.format("%Y/%m/%d")
+    //     );
+    //     let essentials_reviewed = super::rest_api::get_only_essential_after_modified_date(
+    //         config,
+    //         client,
+    //         token,
+    //         last_timestamp_reviewed,
+    //         GithubType::Reviewed,
+    //     )
+    //     .await?;
+    //     log::info!(
+    //         "Requesting a list of unreviewed modified advisories after {}",
+    //         last_timestamp_reviewed.format("%Y/%m/%d")
+    //     );
+    //     let essentials_unreviewed = super::rest_api::get_only_essential_after_modified_date(
+    //         config,
+    //         client,
+    //         token,
+    //         last_timestamp_unreviewed,
+    //         GithubType::Unreviewed,
+    //     )
+    //     .await?;
+    //     log::info!(
+    //         "Request finished. Total time: {:?}. Total number of advisories: {} reviewed, {} unreviewed)",
+    //         essentials_inst.elapsed(),
+    //         essentials_reviewed.len(),
+    //         essentials_unreviewed.len()
+    //     );
 
-        if essentials_reviewed.len() + essentials_unreviewed.len()
-            >= config.github.osv.full_download_threshold
-        {
-            log::warn!(
-                "Threshold reached for API to OSV updates ({} >= {}). Performing full download.",
-                essentials_reviewed.len() + essentials_unreviewed.len(),
-                config.github.osv.full_download_threshold
-            );
-            return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
-                .await;
-        }
+    //     if essentials_reviewed.len() + essentials_unreviewed.len()
+    //         >= config.github.osv.full_download_threshold
+    //     {
+    //         log::warn!(
+    //             "Threshold reached for API to OSV updates ({} >= {}). Performing full download.",
+    //             essentials_reviewed.len() + essentials_unreviewed.len(),
+    //             config.github.osv.full_download_threshold
+    //         );
+    //         return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
+    //             .await;
+    //     }
 
-        let GithubOsvUpdate::AllOk(updated_reviewed) =
-            super::individual_rep_osv::update_osv_database_incremental(
-                config,
-                db_connection,
-                pg_bars,
-                client,
-                token,
-                GithubType::Reviewed,
-                essentials_reviewed,
-            )
-            .await?
-        else {
-            log::warn!(
-                "Reviewed update got rate limited. Postponing update. Time: {:?}",
-                update_inst.elapsed()
-            );
-            return Ok(());
-        };
-        log::info!(
-            "GitHub reviewed OSV table updated. {} rows modified. Time: {:?}",
-            updated_reviewed,
-            update_inst.elapsed()
-        );
-        state.save_update_github_osv_reviewed(config, start_time);
+    //     let GithubOsvUpdate::AllOk(updated_reviewed) =
+    //         super::repository_update::update_osv_database_incremental(
+    //             config,
+    //             db_connection,
+    //             pg_bars,
+    //             client,
+    //             token,
+    //             GithubType::Reviewed,
+    //             essentials_reviewed,
+    //         )
+    //         .await?
+    //     else {
+    //         log::warn!(
+    //             "Reviewed update got rate limited. Postponing update. Time: {:?}",
+    //             update_inst.elapsed()
+    //         );
+    //         return Ok(());
+    //     };
+    //     log::info!(
+    //         "GitHub reviewed OSV table updated. {} rows modified. Time: {:?}",
+    //         updated_reviewed,
+    //         update_inst.elapsed()
+    //     );
+    //     state.save_update_github_osv_reviewed(config, start_time);
 
-        let GithubOsvUpdate::AllOk(updated_unreviewed) =
-            super::individual_rep_osv::update_osv_database_incremental(
-                config,
-                db_connection,
-                pg_bars,
-                client,
-                token,
-                GithubType::Unreviewed,
-                essentials_unreviewed,
-            )
-            .await?
-        else {
-            log::warn!(
-                "Unreviewed update got rate limited. Postponing update. Time: {:?}",
-                update_inst.elapsed()
-            );
-            return Ok(());
-        };
-        log::info!(
-            "GitHub unreviewed OSV table updated. {} rows modified. Time: {:?}",
-            updated_unreviewed,
-            update_inst.elapsed()
-        );
-        state.save_update_github_osv_unreviewed(config, start_time);
+    //     let GithubOsvUpdate::AllOk(updated_unreviewed) =
+    //         super::repository_update::update_osv_database_incremental(
+    //             config,
+    //             db_connection,
+    //             pg_bars,
+    //             client,
+    //             token,
+    //             GithubType::Unreviewed,
+    //             essentials_unreviewed,
+    //         )
+    //         .await?
+    //     else {
+    //         log::warn!(
+    //             "Unreviewed update got rate limited. Postponing update. Time: {:?}",
+    //             update_inst.elapsed()
+    //         );
+    //         return Ok(());
+    //     };
+    //     log::info!(
+    //         "GitHub unreviewed OSV table updated. {} rows modified. Time: {:?}",
+    //         updated_unreviewed,
+    //         update_inst.elapsed()
+    //     );
+    //     state.save_update_github_osv_unreviewed(config, start_time);
 
-        log::info!("GitHub OSV table update finished successfully.");
-    } else {
-        log::info!("GitHub OSV API update disabled. Performing full download.");
-        return manual_download_and_save_state(config, client, db_connection, pg_bars, state).await;
-    }
+    //     log::info!("GitHub OSV table update finished successfully.");
+    // } else {
+    //     log::info!("GitHub OSV API update disabled. Performing full download.");
+    //     return manual_download_and_save_state(config, client, db_connection, pg_bars, state).await;
+    // }
 
     Ok(())
 }
@@ -385,16 +386,7 @@ async fn create_csv(
             }
         };
         let id = &osv_record.id;
-        if id.len() > GITHUB_ID_CHARACTERS {
-            if id.chars().count() > GITHUB_ID_CHARACTERS {
-                panic!(
-                    "ID {} has more characters ({}) than the maximum set to the database ({})",
-                    id,
-                    id.chars().count(),
-                    GITHUB_ID_CHARACTERS
-                );
-            }
-        }
+        super::assert_osv_github_id(id);
 
         let row_data = GeneralizedCsvRecord::from_osv(osv_record);
         let record: [&str; 4] = row_data.as_row();

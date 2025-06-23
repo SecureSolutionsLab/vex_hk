@@ -177,26 +177,3 @@ pub enum CreditType {
     Sponsor,
     Other,
 }
-
-#[derive(Debug, Clone)]
-pub struct OsvEssentials {
-    pub id: String,
-    pub published: DateTime<Utc>,
-    pub modified: DateTime<Utc>,
-}
-
-impl OsvEssentials {
-    pub fn new(id: String, published: DateTime<Utc>, modified: DateTime<Utc>) -> Self {
-        Self {
-            id,
-            modified,
-            published,
-        }
-    }
-
-    pub fn from_github_api(
-        data: &crate::scrape_mod::github::api_response::GitHubAdvisoryAPIResponse,
-    ) -> Self {
-        Self::new(data.ghsa_id.clone(), data.published_at, data.updated_at)
-    }
-}

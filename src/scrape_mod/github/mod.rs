@@ -9,10 +9,10 @@
 //!  - [individual_rep_osv]: Utilities for getting OSV files from the repository individually by calling the API or given an preexisting list. Can be slow, but useful for performing updates to preexisting data from [repository].
 
 pub mod api_response;
-pub mod individual_rep_osv;
-pub mod repository;
-pub mod rest_api;
 mod paginated_api;
+pub mod repository;
+pub mod repository_update;
+pub mod rest_api;
 
 use std::{fmt::Display, time::Duration};
 
@@ -26,10 +26,10 @@ const TEMP_DOWNLOAD_FILE_NAME: &str = "github_all_temp.zip";
 const TEMP_CSV_FILE_REVIEWED_NAME: &str = "github_reviewed_temp.csv";
 const TEMP_CSV_FILE_UNREVIEWED_NAME: &str = "github_unreviewed_temp.csv";
 
-const UPDATE_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed.csv";
-const UPDATE_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed.csv";
-const TEMP_UPDATE_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed_temp.csv";
-const TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed_temp.csv";
+const UPDATE_NEW_FILES_CSV_FILE_PATH_REVIEWED: &str = "github_update_new_reviewed.csv";
+const UPDATE_NEW_FILES_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_new_unreviewed.csv";
+const UPDATE_UPDATED_FILES_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed.csv";
+const UPDATE_UPDATED_FILES_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed.csv";
 
 // https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database
 // ids come in the format of GHSA-xxxx-xxxx-xxxx
@@ -94,17 +94,17 @@ impl GithubType {
         }
     }
 
-    pub const fn csv_update_path(self) -> &'static str {
+    pub const fn csv_new_files_update_path(self) -> &'static str {
         match self {
-            Self::Reviewed => UPDATE_CSV_FILE_PATH_REVIEWED,
-            Self::Unreviewed => UPDATE_CSV_FILE_PATH_UNREVIEWED,
+            Self::Reviewed => UPDATE_NEW_FILES_CSV_FILE_PATH_REVIEWED,
+            Self::Unreviewed => UPDATE_NEW_FILES_CSV_FILE_PATH_UNREVIEWED,
         }
     }
 
-    pub const fn csv_update_path_temp(self) -> &'static str {
+    pub const fn csv_updated_files_update_path(self) -> &'static str {
         match self {
-            Self::Reviewed => TEMP_UPDATE_CSV_FILE_PATH_REVIEWED,
-            Self::Unreviewed => TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED,
+            Self::Reviewed => UPDATE_UPDATED_FILES_CSV_FILE_PATH_REVIEWED,
+            Self::Unreviewed => UPDATE_UPDATED_FILES_CSV_FILE_PATH_UNREVIEWED,
         }
     }
 
@@ -155,6 +155,19 @@ impl From<DownloadError> for GithubApiDownloadError {
         match value {
             DownloadError::Io(v) => Self::Io(v),
             DownloadError::Reqwest(v) => Self::Reqwest(v),
+        }
+    }
+}
+
+fn assert_osv_github_id(id: &str) {
+    if id.len() > GITHUB_ID_CHARACTERS {
+        if id.chars().count() > GITHUB_ID_CHARACTERS {
+            panic!(
+                "ID {} has more characters ({}) than the maximum set to the database ({})",
+                id,
+                id.chars().count(),
+                GITHUB_ID_CHARACTERS
+            );
         }
     }
 }

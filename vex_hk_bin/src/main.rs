@@ -88,13 +88,14 @@ async fn main() -> anyhow::Result<()> {
     let client = reqwest::Client::new();
 
     if args.a {
-        let a = vex_hk::scrape_mod::github::rest_api::get_commits(
+        let a = vex_hk::scrape_mod::github::repository_update::update_osv(
             &config,
             &client,
             config.tokens.github.as_ref().unwrap(),
             &chrono::Utc::now()
-                .checked_sub_days(chrono::Days::new(7))
+                .checked_sub_days(chrono::Days::new(2))
                 .unwrap(),
+            &pg_bars
         )
         .await;
         println!("{}", a.unwrap_err());

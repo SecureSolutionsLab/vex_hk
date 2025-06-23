@@ -64,6 +64,8 @@ pub struct ConfigGithubOsv {
     pub full_download_threshold: usize,
     /// Where to get commits from the API
     pub commits_url: String,
+    /// Where to get files from the API
+    pub files_url: String,
 }
 
 impl Default for ConfigGithubOsv {
@@ -77,6 +79,7 @@ impl Default for ConfigGithubOsv {
             full_download_threshold: defaults::github::repository::UPDATE_THRESHOLD,
             use_api_for_update: defaults::USE_API_FOR_GITHUB_OSV,
             commits_url: defaults::github::repository::COMMITS_URL.to_owned(),
+            files_url: defaults::github::repository::FILES_URL.to_owned(),
         }
     }
 }

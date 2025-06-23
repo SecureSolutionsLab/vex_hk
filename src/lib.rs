@@ -1,3 +1,5 @@
+#![feature(string_remove_matches)]
+
 use std::{
     io::{BufRead, BufReader, Read},
     path::Path,
