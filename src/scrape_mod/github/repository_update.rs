@@ -1,28 +1,49 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs, io,
-    path::Path,
-    time::Instant,
-};
+use std::{collections::HashSet, fs, io};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::{
     config::Config,
     csv_postgres_integration::{self, GeneralizedCsvRecord},
-    scrape_mod::github::{
-        paginated_api::PaginatedApiDataIter, OSVGitHubExtended, API_REQUESTS_LIMIT,
-        GITHUB_ID_CHARACTERS, MIN_TIME_BETWEEN_REQUESTS,
-    },
+    scrape_mod::github::{paginated_api::PaginatedApiDataIter, OSVGitHubExtended},
 };
 
-use super::{paginated_api::PaginatedApiDataIterError, GithubApiDownloadError, GithubType};
+use super::{paginated_api::PaginatedApiDataIterError, GithubType};
 
 /// Ignore everything else and just get the main commit url
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct GithubCommit {
     pub url: String,
+    pub commit: GithubCommitData,
+}
+
+impl GithubCommit {
+    pub fn try_get_date(&self) -> &DateTime<Utc> {
+        if let Some(committer) = self.commit.committer.as_ref() {
+            return &committer.date;
+        }
+        if let Some(author) = self.commit.author.as_ref() {
+            return &author.date;
+        }
+        panic!("GithubCommit no committer or author")
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct GithubCommitData {
+    author: Option<GithubCommitDataAuthor>,
+    committer: Option<GithubCommitDataCommitter>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct GithubCommitDataAuthor {
+    date: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct GithubCommitDataCommitter {
+    date: DateTime<Utc>,
 }
 
 /// Ignore everything else and just get the files
@@ -54,6 +75,7 @@ pub struct GithubCommitFile {
     pub filename: String,
     pub status: GithubCommitFileStatus,
     pub patch: Option<String>,
+    pub previous_filename: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -149,6 +171,7 @@ fn get_file_type_from_filename(filename: &str) -> GithubType {
 pub async fn update_osv(
     config: &Config,
     client: &reqwest::Client,
+    db_connection: &sqlx::Pool<sqlx::Postgres>,
     token: &str,
     since_date: &chrono::DateTime<Utc>,
     pg_bars: &indicatif::MultiProgress,
@@ -162,12 +185,17 @@ pub async fn update_osv(
             ("since", &since_date.to_rfc3339()), // iso 8601 complaint
         ],
     )?;
-    let commits: Vec<GithubCommit> = commits_iter.exhaust().await?;
+    let mut commits: Vec<GithubCommit> = commits_iter.exhaust().await?;
+    // sort commits by earliest first
+    commits.sort_by(|a, b| a.try_get_date().cmp(b.try_get_date()));
     log::info!("Received {} commits. Processing.", commits.len());
     log::debug!("{:#?}", commits);
 
     let mut to_add_files: HashSet<String> = HashSet::new();
     let mut to_update_files: HashSet<String> = HashSet::new();
+    let mut to_delete_files: HashSet<String> = HashSet::new();
+    let mut skipped: usize = 0;
+
     let new_files_reviewed = &config
         .temp_dir_path
         .join(GithubType::Reviewed.csv_new_files_update_path());
@@ -180,19 +208,34 @@ pub async fn update_osv(
     let updated_files_unreviewed = &config
         .temp_dir_path
         .join(GithubType::Unreviewed.csv_updated_files_update_path());
+
+    // create files directories
     {
-        {
-            let parent = new_files_reviewed.parent().unwrap();
-            if !fs::exists(parent)? {
-                fs::create_dir_all(parent)?;
-            }
+        let parent = new_files_reviewed.parent().unwrap();
+        if !fs::exists(parent)? {
+            fs::create_dir_all(parent)?;
         }
-        {
-            let parent = new_files_unreviewed.parent().unwrap();
-            if !fs::exists(parent)? {
-                fs::create_dir_all(parent)?;
-            }
+    }
+    {
+        let parent = new_files_unreviewed.parent().unwrap();
+        if !fs::exists(parent)? {
+            fs::create_dir_all(parent)?;
         }
+    }
+    {
+        let parent = updated_files_reviewed.parent().unwrap();
+        if !fs::exists(parent)? {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    {
+        let parent = updated_files_unreviewed.parent().unwrap();
+        if !fs::exists(parent)? {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    {
         let mut new_reviewed_writer = csv::WriterBuilder::new()
             .has_headers(false)
             .from_path(new_files_reviewed)?;
@@ -201,7 +244,8 @@ pub async fn update_osv(
             .from_path(new_files_unreviewed)?;
 
         let bar = pg_bars.add(indicatif::ProgressBar::new(commits.len() as u64));
-        for commit in commits {
+        // go through commits in reverse (earliest first)
+        for commit in commits.into_iter().rev() {
             let mut commit_data_iter = PaginatedApiDataIter::new(client, &commit.url, token, &[])?;
             while let Some(next_page_res) = commit_data_iter.next_page_request().await {
                 let request = next_page_res?;
@@ -209,23 +253,30 @@ pub async fn update_osv(
 
                 let file_bar = pg_bars.add(indicatif::ProgressBar::new(data.files.len() as u64));
                 for file in data.files {
+                    let filename = &file.filename;
                     // todo: use single regex
-                    if file.filename.starts_with("advisories/") && file.filename.ends_with(".json")
-                    {
+                    if filename.starts_with("advisories/") && filename.ends_with(".json") {
+                        if to_add_files.contains(filename)
+                            || to_update_files.contains(filename)
+                            || to_delete_files.contains(filename)
+                        {
+                            skipped += 1;
+                            continue;
+                        }
                         match file.status {
                             GithubCommitFileStatus::Added => {
-                                let file_ty = get_file_type_from_filename(&file.filename);
+                                let file_ty = get_file_type_from_filename(filename);
                                 let file_patch = &file.patch.expect("Listing commits: File marked as \"added\" does not come with patch data");
                                 let file_contents =
                                     parse_new_file_contents_from_patch_info(file_patch);
                                 let parsed_osv =
-                                    serde_json::from_str::<OSVGitHubExtended>(&file_contents).map_err(|err| 
+                                    serde_json::from_str::<OSVGitHubExtended>(&file_contents).map_err(|err|
                                         anyhow::anyhow!("Failed to parse new file contents from patch information: {}", err)
                                     )?;
                                 let id = &parsed_osv.id;
                                 super::assert_osv_github_id(id);
 
-                                to_add_files.insert(file.filename);
+                                to_add_files.insert(filename.to_owned());
 
                                 let row_data = GeneralizedCsvRecord::from_osv(parsed_osv);
                                 let record: [&str; 4] = row_data.as_row();
@@ -239,7 +290,16 @@ pub async fn update_osv(
                                 }
                             }
                             GithubCommitFileStatus::Modified => {
-                                to_update_files.insert(file.filename);
+                                to_update_files.insert(filename.to_owned());
+                            }
+                            GithubCommitFileStatus::Removed => {
+                                to_delete_files.insert(filename.to_owned());
+                            }
+                            GithubCommitFileStatus::Renamed => {
+                                // file may still contain edits
+                                let previous_filename = file.previous_filename.unwrap();
+                                to_delete_files.insert(previous_filename);
+                                to_update_files.insert(filename.to_owned());
                             }
                             _ => {
                                 return Err(GithubOsvUpdateError::UnhandledCommitFileStatus(
@@ -261,24 +321,14 @@ pub async fn update_osv(
     }
 
     log::info!(
-        "Downloaded {} new files, {} have been modified. Modified files may include new files that were downloaded from commit information.",
+        "Update status: {} new files, {} to modify, {} to remove, {} skipped because of multiple commits.",
         to_add_files.len(),
-        to_update_files.len()
+        to_update_files.len(),
+        to_delete_files.len(),
+        skipped
     );
 
     {
-        {
-            let parent = updated_files_reviewed.parent().unwrap();
-            if !fs::exists(parent)? {
-                fs::create_dir_all(parent)?;
-            }
-        }
-        {
-            let parent = updated_files_unreviewed.parent().unwrap();
-            if !fs::exists(parent)? {
-                fs::create_dir_all(parent)?;
-            }
-        }
         let mut updated_reviewed_writer = csv::WriterBuilder::new()
             .has_headers(false)
             .from_path(updated_files_reviewed)?;
