@@ -1,7 +1,6 @@
 use std::{
     fs,
     io::{self, Write},
-    path::PathBuf,
 };
 
 use chrono::{DateTime, Utc};

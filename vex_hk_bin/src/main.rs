@@ -84,27 +84,30 @@ async fn main() -> anyhow::Result<()> {
         )
     })?;
     let mut state = read_state(&config)?;
-    let db_conn = vex_hk::get_db_connection().await.unwrap();
+    let db_pool = vex_hk::get_db_connection().await.unwrap();
     let client = reqwest::Client::new();
 
     if args.a {
         let a = vex_hk::scrape_mod::github::repository_update::update_osv(
             &config,
             &client,
+            &db_pool,
             config.tokens.github.as_ref().unwrap(),
             &chrono::Utc::now()
-                .checked_sub_days(chrono::Days::new(2))
+                .checked_sub_days(chrono::Days::new(3))
                 .unwrap(),
-            &pg_bars
+            &pg_bars,
         )
         .await;
-        println!("{}", a.unwrap_err());
+        if let Err(err) = a {
+            println!("Error: {}", err);
+        }
     }
 
     if args.github_sync_manual {
         log::info!("Starting GitHub OSV manual sync");
         return vex_hk::scrape_mod::github::repository::sync(
-            &config, &client, &db_conn, &pg_bars, &mut state,
+            &config, &client, &db_pool, &pg_bars, &mut state,
         )
         .await;
     }
@@ -112,14 +115,14 @@ async fn main() -> anyhow::Result<()> {
     if args.osv_download_manual {
         log::info!("Downloading osv and recreating the table");
         return vex_hk::scrape_mod::osv::manual_download_and_save_state(
-            &config, &client, &db_conn, &pg_bars, &mut state,
+            &config, &client, &db_pool, &pg_bars, &mut state,
         )
         .await;
     }
     if args.osv_update_manual {
         log::info!("Attempting to manually update OSV");
         return vex_hk::scrape_mod::osv::manual_update_and_save_state(
-            &config, &client, &db_conn, &pg_bars, &mut state,
+            &config, &client, &db_pool, &pg_bars, &mut state,
         )
         .await;
     }

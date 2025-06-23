@@ -1,6 +1,6 @@
 use crate::scrape_mod::structs::HasId;
 use log::{error, info};
-use sqlx::{Pool, Postgres};
+use sqlx::{Executor, PgConnection, Pool, Postgres};
 use std::time::Instant;
 
 /// Removes entries from the specified database table based on matching IDs.
@@ -65,4 +65,18 @@ where
             Err(e)
         }
     }
+}
+
+/// Delete rows by id by pasting those ids in a query
+pub async fn execute_delete_entries_by_id_slow(
+    conn: &mut PgConnection,
+    table_name: &str,
+    // using values other than string requires that they live long enough for the query to be executed
+    ids_to_delete: &[&str],
+) -> Result<usize, sqlx::Error> {
+    log::debug!("Deleting entries with bound query");
+    let query_str = format!("DELETE FROM {} WHERE id = ANY($1)", table_name);
+    let query = sqlx::query(&query_str).bind(ids_to_delete);
+    let result = conn.execute(query).await?;
+    Ok(result.rows_affected() as usize)
 }

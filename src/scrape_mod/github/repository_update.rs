@@ -167,15 +167,22 @@ fn get_file_type_from_filename(filename: &str) -> GithubType {
     }
 }
 
+/// Get just the id from "5/06/GHSA-2gg5-4wg8-wvxp/GHSA-2gg5-4wg8-wvxp.json"
+fn get_id_from_filename(filename: &str) -> &str {
+    let last_slash = filename.rfind('/').expect("Invalid filename");
+    debug_assert!(filename.ends_with(".json"));
+    &filename[(last_slash + 1)..(filename.len() - 5)]
+}
+
 /// Get all updated files after an update (by looking at commits)
 pub async fn update_osv(
     config: &Config,
     client: &reqwest::Client,
-    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    db_pool: &sqlx::Pool<sqlx::Postgres>,
     token: &str,
     since_date: &chrono::DateTime<Utc>,
     pg_bars: &indicatif::MultiProgress,
-) -> Result<Vec<GithubCommit>, GithubOsvUpdateError> {
+) -> Result<(), GithubOsvUpdateError> {
     log::info!("Querying commits...");
     let commits_iter = PaginatedApiDataIter::new(
         client,
@@ -366,8 +373,44 @@ pub async fn update_osv(
     }
     log::info!("All downloads finished.");
 
-    todo!();
-    // Ok(data)
+    let mut to_delete_ids_reviewed = Vec::new();
+    let mut to_delete_ids_unreviewed = Vec::new();
+    for filename in to_delete_files.iter() {
+        let file_ty = get_file_type_from_filename(filename);
+        let id = get_id_from_filename(filename);
+        super::assert_osv_github_id(id);
+        match file_ty {
+            GithubType::Reviewed => {
+                to_delete_ids_reviewed.push(id);
+            }
+            GithubType::Unreviewed => {
+                to_delete_ids_unreviewed.push(id);
+            }
+        }
+    }
+
+    log::info!("Updating reviewed entries in database.");
+    csv_postgres_integration::add_new_update_and_delete(
+        db_pool,
+        &new_files_reviewed,
+        &updated_files_reviewed,
+        &to_delete_ids_reviewed,
+        &config.osv.table_name,
+    )
+    .await
+    .map_err(|err| anyhow::anyhow!("Failed to update database (reviewed):\n{}", err))?;
+    log::info!("Updating unreviewed entries in database.");
+    csv_postgres_integration::add_new_update_and_delete(
+        db_pool,
+        &new_files_unreviewed,
+        &updated_files_unreviewed,
+        &to_delete_ids_unreviewed,
+        &config.osv.table_name,
+    )
+    .await
+    .map_err(|err| anyhow::anyhow!("Failed to update database (unreviewed):\n{}", err))?;
+
+    Ok(())
 }
 
 // NOTE
