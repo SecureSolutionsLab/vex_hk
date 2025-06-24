@@ -20,7 +20,7 @@ impl Default for Config {
             github: ConfigGithub::default(),
             tokens: Tokens::default(),
             temp_dir_path: PathBuf::from(defaults::TEMP_DIR_LOCATION),
-            state_file_location: PathBuf::from(defaults::STATE_FILE_LOCATION)
+            state_file_location: PathBuf::from(defaults::STATE_FILE_LOCATION),
         }
     }
 }
@@ -62,6 +62,10 @@ pub struct ConfigGithubOsv {
     pub use_api_for_update: bool,
     /// Threshold over which a full update is started instead of a file by file one
     pub full_download_threshold: usize,
+    /// Where to get commits from the API
+    pub commits_url: String,
+    /// Where to get files from the API
+    pub files_url: String,
 }
 
 impl Default for ConfigGithubOsv {
@@ -71,8 +75,11 @@ impl Default for ConfigGithubOsv {
             reviewed_table_name: defaults::github::repository::REVIEWED_TABLE_NAME.to_owned(),
             unreviewed_table_name: defaults::github::repository::UNREVIEWED_TABLE_NAME.to_owned(),
             enable_update: defaults::ENABLE_GITHUB_OSV,
+
             full_download_threshold: defaults::github::repository::UPDATE_THRESHOLD,
             use_api_for_update: defaults::USE_API_FOR_GITHUB_OSV,
+            commits_url: defaults::github::repository::COMMITS_URL.to_owned(),
+            files_url: defaults::github::repository::FILES_URL.to_owned(),
         }
     }
 }

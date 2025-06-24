@@ -9,13 +9,15 @@
 //!  - [individual_rep_osv]: Utilities for getting OSV files from the repository individually by calling the API or given an preexisting list. Can be slow, but useful for performing updates to preexisting data from [repository].
 
 pub mod api_response;
-pub mod individual_rep_osv;
+mod paginated_api;
 pub mod repository;
+pub mod repository_update;
 pub mod rest_api;
 
-use std::{fmt::Display, time::Duration};
+use std::{fmt::Display};
 
 use const_format::formatcp;
+use paginated_api::PaginatedApiDataIterError;
 use serde::{Deserialize, Serialize};
 
 use crate::{config::Config, csv_postgres_integration, download::DownloadError, osv_schema::OSV};
@@ -24,18 +26,15 @@ const TEMP_DOWNLOAD_FILE_NAME: &str = "github_all_temp.zip";
 const TEMP_CSV_FILE_REVIEWED_NAME: &str = "github_reviewed_temp.csv";
 const TEMP_CSV_FILE_UNREVIEWED_NAME: &str = "github_unreviewed_temp.csv";
 
-const UPDATE_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed.csv";
-const UPDATE_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed.csv";
-const TEMP_UPDATE_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed_temp.csv";
-const TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed_temp.csv";
+const UPDATE_NEW_FILES_CSV_FILE_PATH_REVIEWED: &str = "github_update_new_reviewed.csv";
+const UPDATE_NEW_FILES_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_new_unreviewed.csv";
+const UPDATE_UPDATED_FILES_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed.csv";
+const UPDATE_UPDATED_FILES_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed.csv";
 
 // https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database
 // ids come in the format of GHSA-xxxx-xxxx-xxxx
 const GITHUB_ID_CHARACTERS: usize = 19;
 const GITHUB_ID_SQL_TYPE: &str = formatcp!("CHARACTER({})", GITHUB_ID_CHARACTERS);
-
-// max 900 request per minute (60 / 900)
-const MIN_TIME_BETWEEN_REQUESTS: Duration = Duration::new(0, 66666667);
 
 const API_REQUESTS_LIMIT: usize = 5000;
 
@@ -92,17 +91,17 @@ impl GithubType {
         }
     }
 
-    pub const fn csv_update_path(self) -> &'static str {
+    pub const fn csv_new_files_update_path(self) -> &'static str {
         match self {
-            Self::Reviewed => UPDATE_CSV_FILE_PATH_REVIEWED,
-            Self::Unreviewed => UPDATE_CSV_FILE_PATH_UNREVIEWED,
+            Self::Reviewed => UPDATE_NEW_FILES_CSV_FILE_PATH_REVIEWED,
+            Self::Unreviewed => UPDATE_NEW_FILES_CSV_FILE_PATH_UNREVIEWED,
         }
     }
 
-    pub const fn csv_update_path_temp(self) -> &'static str {
+    pub const fn csv_updated_files_update_path(self) -> &'static str {
         match self {
-            Self::Reviewed => TEMP_UPDATE_CSV_FILE_PATH_REVIEWED,
-            Self::Unreviewed => TEMP_UPDATE_CSV_FILE_PATH_UNREVIEWED,
+            Self::Reviewed => UPDATE_UPDATED_FILES_CSV_FILE_PATH_REVIEWED,
+            Self::Unreviewed => UPDATE_UPDATED_FILES_CSV_FILE_PATH_UNREVIEWED,
         }
     }
 
@@ -138,8 +137,10 @@ impl Display for GithubType {
 pub enum GithubApiDownloadError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    #[error("Reqwest HTTP Error: {0}")]
+    #[error("Failed single HTTP Request (Reqwest error): {0}")]
     Reqwest(#[from] reqwest::Error),
+    #[error("Failed to retrieve paginated data:\n{0}")]
+    PaginatedApiDataIter(#[from] PaginatedApiDataIterError),
     #[error("Failed to serialize data to json:\n{0}")]
     Serialization(#[from] serde_json::Error),
     #[error("CSV error: {0}")]
@@ -153,4 +154,16 @@ impl From<DownloadError> for GithubApiDownloadError {
             DownloadError::Reqwest(v) => Self::Reqwest(v),
         }
     }
+}
+
+fn assert_osv_github_id(id: &str) {
+    if id.len() > GITHUB_ID_CHARACTERS
+        && id.chars().count() > GITHUB_ID_CHARACTERS {
+            panic!(
+                "ID {} has more characters ({}) than the maximum set to the database ({})",
+                id,
+                id.chars().count(),
+                GITHUB_ID_CHARACTERS
+            );
+        }
 }

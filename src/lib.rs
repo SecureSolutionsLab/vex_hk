@@ -1,15 +1,15 @@
+#![feature(string_remove_matches)]
+
 use std::{
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader},
     path::Path,
     process::{Command, Stdio},
-    time::Instant,
 };
 
 #[cfg(feature = "nvd")]
 use chrono::NaiveDate;
 #[cfg(feature = "nvd")]
 use log::error;
-use sqlx::postgres::PgPoolCopyExt;
 #[cfg(feature = "nvd")]
 use std::{
     iter::once,

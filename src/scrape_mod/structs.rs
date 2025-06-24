@@ -311,8 +311,8 @@ pub struct DatabaseSpecific {
 }
 
 #[cfg(feature = "osv")]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Sitemap {
-    pub(crate) loc: String,
-    pub(crate) lastmod: DateTime<FixedOffset>,
+    pub loc: String,
+    pub lastmod: DateTime<FixedOffset>,
 }

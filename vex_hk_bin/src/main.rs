@@ -19,6 +19,14 @@ struct Cli {
 
     #[arg(short, long)]
     github_sync_manual: bool,
+
+    #[arg(long)]
+    osv_download_manual: bool,
+    #[arg(long)]
+    osv_update_manual: bool,
+
+    #[arg(long)]
+    a: bool,
 }
 
 fn read_config(path: &Path) -> anyhow::Result<Config> {
@@ -54,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
     LogWrapper::new(pg_bars.clone(), logger).try_init().unwrap();
     log::set_max_level(level);
 
+    log::debug!("Parsing arguments");
     let args = Cli::parse();
     if args.regenerate_config {
         println!("Generating default config at {:?}.", args.config);
@@ -67,15 +76,60 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let config = read_config(&args.config)?;
-    let mut state = read_state(&config)?;
-    let db_conn = vex_hk::get_db_connection().await.unwrap();
+    let config = read_config(&args.config).map_err(|err| {
+        anyhow::anyhow!(
+            "Failed to read config {:?}. Config misstructured or corrupted.\n{}",
+            args.config,
+            err
+        )
+    })?;
+    let mut state = read_state(&config).map_err(|err| {
+        anyhow::anyhow!(
+            "Failed to read state {:?}. State misstructured or corrupted.\n{}",
+            config.state_file_location,
+            err
+        )
+    })?;
+
+    let db_pool = vex_hk::get_db_connection().await.unwrap();
     let client = reqwest::Client::new();
+
+    if args.a {
+        let a = vex_hk::scrape_mod::github::repository_update::update_osv(
+            &config,
+            &client,
+            &db_pool,
+            config.tokens.github.as_ref().unwrap(),
+            &chrono::Utc::now()
+                .checked_sub_days(chrono::Days::new(3))
+                .unwrap(),
+            &pg_bars,
+        )
+        .await;
+        if let Err(err) = a {
+            println!("Error: {}", err);
+        }
+    }
 
     if args.github_sync_manual {
         log::info!("Starting GitHub OSV manual sync");
         return vex_hk::scrape_mod::github::repository::sync(
-            &config, &client, &db_conn, &pg_bars, &mut state,
+            &config, &client, &db_pool, &pg_bars, &mut state,
+        )
+        .await;
+    }
+
+    if args.osv_download_manual {
+        log::info!("Downloading osv and recreating the table");
+        return vex_hk::scrape_mod::osv::manual_download_and_save_state(
+            &config, &client, &db_pool, &pg_bars, &mut state,
+        )
+        .await;
+    }
+    if args.osv_update_manual {
+        log::info!("Attempting to manually update OSV");
+        return vex_hk::scrape_mod::osv::manual_update_and_save_state(
+            &config, &client, &db_pool, &pg_bars, &mut state,
         )
         .await;
     }

@@ -23,6 +23,10 @@ pub mod github {
     pub mod repository {
         pub const URL: &str =
             "https://github.com/github/advisory-database/archive/refs/heads/main.zip";
+        pub const COMMITS_URL: &str =
+            "https://api.github.com/repos/github/advisory-database/commits";
+        pub const FILES_URL: &str =
+            "https://api.github.com/repos/github/advisory-database/contents/";
 
         pub const REVIEWED_TABLE_NAME: &str = "github_osv_reviewed";
         pub const UNREVIEWED_TABLE_NAME: &str = "github_osv_unreviewed";

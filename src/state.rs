@@ -1,7 +1,6 @@
 use std::{
     fs,
     io::{self, Write},
-    path::PathBuf,
 };
 
 use chrono::{DateTime, Utc};
@@ -39,50 +38,40 @@ impl ScraperState {
     fn save(&self, config: &Config) {
         match self.save_err(config) {
             Ok(()) => log::info!("Scraper state saved."),
-            Err(err) => log::error!("FAILED TO UPDATE SCRAPER STATUS\n{}", err),
+            Err(err) => log::error!("FAILED TO UPDATE SCRAPER STATUS\n{err}"),
         }
     }
 
-    pub fn save_download_osv_full(&mut self, config: &Config, download_start: DateTime<Utc>) {
+    pub fn save_osv(&mut self, config: &Config, download_start: DateTime<Utc>) {
         self.osv.last_update_timestamp = Some(download_start);
         self.osv.initialized = true;
         self.save(config);
     }
 
-    pub fn save_download_github_osv_full(&mut self, config: &Config, download_start: DateTime<Utc>) {
-        self.github.osv.last_update_timestamp_reviewed = Some(download_start);
-        self.github.osv.last_update_timestamp_unreviewed = Some(download_start);
+    pub fn save_download_github_osv_full(
+        &mut self,
+        config: &Config,
+        download_start: DateTime<Utc>,
+    ) {
+        self.github.osv.last_update_timestamp = Some(download_start);
         self.github.osv.initialized = true;
         self.save(config);
     }
 
-    pub fn save_update_github_osv_reviewed(&mut self, config: &Config, start_time: DateTime<Utc>) {
-        assert_eq!(self.github.osv.initialized, true);
-        self.github.osv.last_update_timestamp_reviewed = Some(start_time);
-        self.save(config);
-    }
-
-    pub fn save_update_github_osv_unreviewed(&mut self, config: &Config, start_time: DateTime<Utc>) {
-        assert_eq!(self.github.osv.initialized, true);
-        self.github.osv.last_update_timestamp_unreviewed = Some(start_time);
+    pub fn save_update_github_osv(&mut self, config: &Config, start_time: DateTime<Utc>) {
+        assert!(self.github.osv.initialized);
+        self.github.osv.last_update_timestamp = Some(start_time);
         self.save(config);
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ScraperStateOsv {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
 
-impl Default for ScraperStateOsv {
-    fn default() -> Self {
-        Self {
-            initialized: false,
-            last_update_timestamp: None,
-        }
-    }
-}
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct ScraperStateGithub {
@@ -91,36 +80,20 @@ pub struct ScraperStateGithub {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ScraperStateGithubOsv {
     pub initialized: bool,
-    pub last_update_timestamp_reviewed: Option<DateTime<Utc>>,
-    pub last_update_timestamp_unreviewed: Option<DateTime<Utc>>,
+    pub last_update_timestamp: Option<DateTime<Utc>>,
 }
 
-impl Default for ScraperStateGithubOsv {
-    fn default() -> Self {
-        Self {
-            initialized: false,
-            last_update_timestamp_reviewed: None,
-            last_update_timestamp_unreviewed: None,
-        }
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ScraperStateGithubApi {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
 
-impl Default for ScraperStateGithubApi {
-    fn default() -> Self {
-        Self {
-            initialized: false,
-            last_update_timestamp: None,
-        }
-    }
-}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Tokens {

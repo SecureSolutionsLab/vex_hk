@@ -99,7 +99,7 @@ pub fn read_key(key: String) -> Option<String> {
 /// ```
 pub fn store_key(key: String, value: String) {
     // Read the existing config file or create a new one if it doesn't exist
-    println!("store key: {}", FILE_PATH);
+    println!("store key: {FILE_PATH}");
     // todo: check clippy (clippy::suspicious_open_options)
     let mut file = OpenOptions::new()
         .write(true)
