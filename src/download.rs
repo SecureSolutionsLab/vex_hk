@@ -23,7 +23,7 @@ pub async fn download_and_save_to_file_in_chunks(
     pg_bars: &indicatif::MultiProgress,
 ) -> Result<(), DownloadError> {
     let start_instant = Instant::now();
-    log::info!("Creating download file at {:?}", file_path);
+    log::info!("Creating download file at {file_path:?}");
 
     let parent = file_path.parent().unwrap();
     if !fs::exists(parent)? {
@@ -32,7 +32,7 @@ pub async fn download_and_save_to_file_in_chunks(
 
     let mut file = tokio::io::BufWriter::new(tokio::fs::File::create(file_path).await?);
 
-    log::info!("Performing request to {}...", url);
+    log::info!("Performing request to {url}...");
     let response = client.get(url).send().await?;
     let bar = if let Some(content_len) = response.content_length() {
         log::info!(

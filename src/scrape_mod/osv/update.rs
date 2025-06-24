@@ -88,7 +88,7 @@ pub async fn scrape_osv_update(
     let ecosystems = match sitemap_parse(client, &config.osv.index, last_timestamp).await {
         Ok(ecosystems) => ecosystems,
         Err(e) => {
-            log::error!("Error in retrieving ecosystems {}", e);
+            log::error!("Error in retrieving ecosystems {e}");
             return Err(e);
         }
     };
@@ -97,7 +97,7 @@ pub async fn scrape_osv_update(
         let entries = match ecosystem_parse(client, &ecosystem.loc, last_timestamp).await {
             Ok(entries) => entries,
             Err(e) => {
-                log::error!("Error in retrieving ecosystems {}", e);
+                log::error!("Error in retrieving ecosystems {e}");
                 return Err(e);
             }
         };
@@ -118,7 +118,7 @@ pub async fn scrape_osv_update(
     // Query the database for entries that are missing or stale.
     let missing_ids: Vec<EntryStatus> =
         crate::db_api::query_db::find_missing_or_stale_entries_by_id(
-            &db_connection,
+            db_connection,
             &config.osv.table_name,
             "data",
             entry_inputs_json,
@@ -147,7 +147,7 @@ pub async fn scrape_osv_update(
             let osv = match fetch_osv_details(client, &sitemap.loc).await {
                 Ok(result) => result,
                 Err(e) => {
-                    log::error!("Error in fecthing osv details: {}", e);
+                    log::error!("Error in fecthing osv details: {e}");
                     return Err(e.into());
                 }
             };
@@ -155,8 +155,8 @@ pub async fn scrape_osv_update(
         }
     }
 
-    println!("to remove: {:#?}", remove);
-    println!("to add: {:#?}", osvs);
+    println!("to remove: {remove:#?}");
+    println!("to add: {osvs:#?}");
 
     // // Remove outdated records if necessary.
     // if !remove.is_empty() {
@@ -351,7 +351,7 @@ async fn fetch_osv_details(
     client: &reqwest::Client,
     url: &str,
 ) -> Result<OSVGeneralized, ParseError> {
-    log::info!("Fetching HTML from: {}", url);
+    log::info!("Fetching HTML from: {url}");
 
     // Fetch the HTML page.
     let response = client.get(url).send().await?;
@@ -362,9 +362,9 @@ async fn fetch_osv_details(
 
     // Define selectors for dt and dd elements.
     let dt_selector = Selector::parse("dl.vulnerability-details dt")
-        .map_err(|e| ParseError::Html(format!("Invalid dt selector: {}", e)))?;
+        .map_err(|e| ParseError::Html(format!("Invalid dt selector: {e}")))?;
     let dd_selector = Selector::parse("dl.vulnerability-details dd")
-        .map_err(|e| ParseError::Html(format!("Invalid dd selector: {}", e)))?;
+        .map_err(|e| ParseError::Html(format!("Invalid dd selector: {e}")))?;
 
     let dt_elements: Vec<_> = document.select(&dt_selector).collect();
     let dd_elements: Vec<_> = document.select(&dd_selector).collect();
@@ -375,7 +375,7 @@ async fn fetch_osv_details(
         let dt_text = dt.text().collect::<Vec<_>>().join(" ").trim().to_string();
         if dt_text == "JSON Data" {
             let a_selector = Selector::parse("a")
-                .map_err(|e| ParseError::Html(format!("Invalid a selector: {}", e)))?;
+                .map_err(|e| ParseError::Html(format!("Invalid a selector: {e}")))?;
             if let Some(a) = dd.select(&a_selector).next() {
                 json_url = a.value().attr("href").map(|s| s.to_string());
             }
@@ -384,7 +384,7 @@ async fn fetch_osv_details(
     }
 
     let json_url = json_url.ok_or(ParseError::MissingJsonUrl)?;
-    log::info!("Found JSON URL: {}", json_url);
+    log::info!("Found JSON URL: {json_url}");
 
     // Fetch the JSON data from the extracted URL.
     let json_response = client.get(&json_url).send().await?;

@@ -108,6 +108,6 @@ pub fn _write_env(key: &str, value: &str) {
         .unwrap();
 
     for (key, value) in env_vars.iter() {
-        writeln!(&mut file, "{}={}", key, value).unwrap();
+        writeln!(&mut file, "{key}={value}").unwrap();
     }
 }

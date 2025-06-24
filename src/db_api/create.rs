@@ -11,11 +11,10 @@ pub async fn execute_create_tmp_table_drop_on_commit(
     log::debug!("Creating temporary table");
     let query_str = format!(
         "
-CREATE TEMP TABLE \"{}\" 
-(LIKE \"{}\" INCLUDING DEFAULTS)
+CREATE TEMP TABLE \"{new_table_name}\" 
+(LIKE \"{copy_settings_from_table_name}\" INCLUDING DEFAULTS)
 ON COMMIT DROP;
-        ",
-        new_table_name, copy_settings_from_table_name
+        "
     );
     conn.execute(sqlx::query(&query_str)).await?;
     Ok(())

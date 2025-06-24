@@ -1,5 +1,4 @@
 use chrono::Utc;
-use const_format::formatcp;
 use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 use std::{
     fs::{self, File},
@@ -62,7 +61,7 @@ pub async fn scrape_osv_full(
         client,
         &osv_status.full_data_url,
         &download_path,
-        &pg_bars,
+        pg_bars,
     )
     .await?;
 
@@ -96,7 +95,7 @@ pub async fn scrape_osv_full(
         );
 
         csv_postgres_integration::send_csv_to_database_whole(
-            &db_connection,
+            db_connection,
             &csv_path,
             &osv_status.table_name,
             row_count,
@@ -104,12 +103,11 @@ pub async fn scrape_osv_full(
         .await?;
     } else {
         log::info!(
-            "Attempting an update on the existing table. Number of entries: {}",
-            row_count,
+            "Attempting an update on the existing table. Number of entries: {row_count}",
         );
 
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
-            &db_connection,
+            db_connection,
             &csv_path,
             &osv_status.table_name,
         )
@@ -183,14 +181,14 @@ pub async fn create_csv(
                     Ok(v) => v,
                     Err(err) => {
                         log::error!("{}", &buffer);
-                        panic!("{}: {}", file_i, err);
+                        panic!("{file_i}: {err}");
                     }
                 };
                 res_ok
             };
             let id = &osv_record.id;
-            if id.len() > OSV_ID_MAX_CHARACTERS {
-                if id.chars().count() > OSV_ID_MAX_CHARACTERS {
+            if id.len() > OSV_ID_MAX_CHARACTERS
+                && id.chars().count() > OSV_ID_MAX_CHARACTERS {
                     panic!(
                         "ID {} has more characters ({}) than the maximum set to the database ({})",
                         id,
@@ -198,10 +196,9 @@ pub async fn create_csv(
                         OSV_ID_MAX_CHARACTERS
                     );
                 }
-            }
 
             let generalized = GeneralizedCsvRecord::from_osv(osv_record);
-            csv_writer.write_record(&generalized.as_row())?;
+            csv_writer.write_record(generalized.as_row())?;
             buffer.clear();
             bar.set_position((file_i + 1) as u64);
             processed_file_count += 1;

@@ -44,8 +44,7 @@ where
     let ids: Vec<String> = entries.iter().map(|e| e.get_id().to_string()).collect();
 
     let sql_query = format!(
-        "DELETE FROM {} WHERE {}->>'{}' = ANY($1)",
-        table, column, field
+        "DELETE FROM {table} WHERE {column}->>'{field}' = ANY($1)"
     );
 
     let result = sqlx::query(&sql_query).bind(&ids).execute(db).await;
@@ -75,7 +74,7 @@ pub async fn execute_delete_entries_by_id_slow(
     ids_to_delete: &[&str],
 ) -> Result<usize, sqlx::Error> {
     log::debug!("Deleting entries with bound query");
-    let query_str = format!("DELETE FROM {} WHERE id = ANY($1)", table_name);
+    let query_str = format!("DELETE FROM {table_name} WHERE id = ANY($1)");
     let query = sqlx::query(&query_str).bind(ids_to_delete);
     let result = conn.execute(query).await?;
     Ok(result.rows_affected() as usize)

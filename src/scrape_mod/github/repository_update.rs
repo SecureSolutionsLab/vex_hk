@@ -161,8 +161,7 @@ fn get_file_type_from_filename(filename: &str) -> GithubType {
         GithubType::Unreviewed
     } else {
         panic!(
-            "Found invalid type in advisories file path: Invalid type {:?}",
-            type_text
+            "Found invalid type in advisories file path: Invalid type {type_text:?}"
         );
     }
 }
@@ -202,7 +201,7 @@ pub async fn update_osv(
     // sort commits by earliest first
     commits.sort_by(|a, b| a.try_get_date().cmp(b.try_get_date()));
     log::info!("Received {} commits ({:?}). Processing.", commits.len(), all_start.elapsed());
-    log::debug!("{:#?}", commits);
+    log::debug!("{commits:#?}");
 
     let mut to_add_files: HashSet<String> = HashSet::new();
     let mut to_update_files: HashSet<String> = HashSet::new();
@@ -297,10 +296,10 @@ pub async fn update_osv(
                                 let record: [&str; 4] = row_data.as_row();
                                 match file_ty {
                                     GithubType::Reviewed => {
-                                        new_reviewed_writer.write_record(&record)?;
+                                        new_reviewed_writer.write_record(record)?;
                                     }
                                     GithubType::Unreviewed => {
-                                        new_unreviewed_writer.write_record(&record)?
+                                        new_unreviewed_writer.write_record(record)?
                                     }
                                 }
                             }
@@ -373,9 +372,9 @@ pub async fn update_osv(
             let record: [&str; 4] = row_data.as_row();
             match file_ty {
                 GithubType::Reviewed => {
-                    updated_reviewed_writer.write_record(&record)?;
+                    updated_reviewed_writer.write_record(record)?;
                 }
-                GithubType::Unreviewed => updated_unreviewed_writer.write_record(&record)?,
+                GithubType::Unreviewed => updated_unreviewed_writer.write_record(record)?,
             }
             bar.inc(1);
         }
@@ -405,8 +404,8 @@ pub async fn update_osv(
     log::info!("Updating reviewed entries in database.");
     csv_postgres_integration::add_new_update_and_delete(
         db_pool,
-        &new_files_reviewed,
-        &updated_files_reviewed,
+        new_files_reviewed,
+        updated_files_reviewed,
         &to_delete_ids_reviewed,
         &config.osv.table_name,
     )
@@ -415,8 +414,8 @@ pub async fn update_osv(
     log::info!("Updating unreviewed entries in database.");
     csv_postgres_integration::add_new_update_and_delete(
         db_pool,
-        &new_files_unreviewed,
-        &updated_files_unreviewed,
+        new_files_unreviewed,
+        updated_files_unreviewed,
         &to_delete_ids_unreviewed,
         &config.osv.table_name,
     )

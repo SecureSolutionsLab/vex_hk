@@ -157,8 +157,8 @@ impl From<DownloadError> for GithubApiDownloadError {
 }
 
 fn assert_osv_github_id(id: &str) {
-    if id.len() > GITHUB_ID_CHARACTERS {
-        if id.chars().count() > GITHUB_ID_CHARACTERS {
+    if id.len() > GITHUB_ID_CHARACTERS
+        && id.chars().count() > GITHUB_ID_CHARACTERS {
             panic!(
                 "ID {} has more characters ({}) than the maximum set to the database ({})",
                 id,
@@ -166,5 +166,4 @@ fn assert_osv_github_id(id: &str) {
                 GITHUB_ID_CHARACTERS
             );
         }
-    }
 }

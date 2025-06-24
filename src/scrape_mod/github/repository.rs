@@ -76,7 +76,7 @@ pub async fn sync(
             config,
             client,
             db_pool,
-            &token,
+            token,
             last_timestamp,
             pg_bars,
         )
@@ -84,10 +84,10 @@ pub async fn sync(
         {
             match err {
                 GithubOsvUpdateError::UnhandledCommitFileStatus(_, _, _) => {
-                    log::warn!("{}. Attempting a whole download instead.", err);
+                    log::warn!("{err}. Attempting a whole download instead.");
                 }
                 GithubOsvUpdateError::Other(other_err) => {
-                    log::error!("Repository update returned an unrecoverable error:\n{}\nAttempting a whole download.", other_err);
+                    log::error!("Repository update returned an unrecoverable error:\n{other_err}\nAttempting a whole download.");
                 }
             }
             return manual_download_and_save_state(config, client, db_pool, pg_bars, state).await;
@@ -125,7 +125,7 @@ pub async fn download_osv_full(
     let csv_path_reviewed = config.temp_dir_path.join(TEMP_CSV_FILE_REVIEWED_NAME);
     let csv_path_unreviewed = config.temp_dir_path.join(TEMP_CSV_FILE_UNREVIEWED_NAME);
 
-    download_and_save_to_file_in_chunks(client, &config.github.osv.url, &download_path, &pg_bars)
+    download_and_save_to_file_in_chunks(client, &config.github.osv.url, &download_path, pg_bars)
         .await?;
     let (row_count_reviewed, row_count_unreviewed) = create_csv(
         &download_path,
@@ -162,14 +162,14 @@ pub async fn download_osv_full(
         );
 
         csv_postgres_integration::send_csv_to_database_whole(
-            &db_pool,
+            db_pool,
             &csv_path_reviewed,
             GithubType::Reviewed.osv_table_name(config),
             row_count_reviewed,
         )
         .await?;
         csv_postgres_integration::send_csv_to_database_whole(
-            &db_pool,
+            db_pool,
             &csv_path_unreviewed,
             GithubType::Unreviewed.osv_table_name(config),
             row_count_unreviewed,
@@ -177,19 +177,17 @@ pub async fn download_osv_full(
         .await?;
     } else {
         log::info!(
-            "Attempting an update on existing tables. Number of entries: {}, {}",
-            row_count_reviewed,
-            row_count_unreviewed
+            "Attempting an update on existing tables. Number of entries: {row_count_reviewed}, {row_count_unreviewed}"
         );
 
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
-            &db_pool,
+            db_pool,
             &csv_path_reviewed,
             GithubType::Reviewed.osv_table_name(config),
         )
         .await?;
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
-            &db_pool,
+            db_pool,
             &csv_path_unreviewed,
             GithubType::Unreviewed.osv_table_name(config),
         )
@@ -306,10 +304,10 @@ async fn create_csv(
         let row_data = GeneralizedCsvRecord::from_osv(osv_record);
         let record: [&str; 4] = row_data.as_row();
         if reviewed {
-            csv_writer_reviewed.write_record(&record)?;
+            csv_writer_reviewed.write_record(record)?;
             processed_file_count_reviewed += 1;
         } else {
-            csv_writer_unreviewed.write_record(&record)?;
+            csv_writer_unreviewed.write_record(record)?;
             processed_file_count_unreviewed += 1;
         }
         buffer.clear();

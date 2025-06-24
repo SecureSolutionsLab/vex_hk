@@ -34,13 +34,12 @@ pub enum CsvCreationError {
 
 pub fn format_sql_create_table_command(table_name: &str, id_sql_type: &str) -> String {
     format!(
-        "CREATE TABLE \"{}\" (
-            \"id\" {} PRIMARY KEY,
+        "CREATE TABLE \"{table_name}\" (
+            \"id\" {id_sql_type} PRIMARY KEY,
             \"published\" TIMESTAMPTZ NOT NULL,
             \"modified\" TIMESTAMPTZ NOT NULL,
             \"data\" JSONB NOT NULL
-        );",
-        table_name, id_sql_type
+        );"
     )
 }
 
@@ -61,7 +60,7 @@ impl GeneralizedCsvRecord {
     /// Represent data in a row of [id, published, modified, json]
     ///
     /// This can be used directly as a record by the csv library
-    pub fn as_row<'a>(&'a self) -> [&'a str; 4] {
+    pub fn as_row(&self) -> [&str; 4] {
         [&self.id, &self.published, &self.modified, &self.json]
     }
 
@@ -112,9 +111,7 @@ pub async fn send_csv_to_database_whole(
     expected_rows_count: usize,
 ) -> Result<(), sqlx::Error> {
     log::info!(
-        "Opening {:?} and sending whole to database, table name: {}",
-        file_path,
-        table_name
+        "Opening {file_path:?} and sending whole to database, table name: {table_name}"
     );
     let processing_start = Instant::now();
     let mut conn = db_pool.acquire().await?;
@@ -134,9 +131,7 @@ async fn update_with_temp_table(
     mut insert_query: sqlx::QueryBuilder<'_, sqlx::Postgres>,
 ) -> Result<u64, sqlx::Error> {
     log::info!(
-        "Opening {:?} and updating database, table name: {}. Inserting new entries and updating old ones.",
-        file_path,
-        table_name
+        "Opening {file_path:?} and updating database, table name: {table_name}. Inserting new entries and updating old ones."
     );
     let processing_start = Instant::now();
 
@@ -167,8 +162,7 @@ async fn update_with_temp_table(
     let result = tx_conn.execute(insert_query.build().sql()).await?;
     let affected_rows = result.rows_affected();
     log::debug!(
-        "Transaction insert from temp, {} affected rows",
-        affected_rows
+        "Transaction insert from temp, {affected_rows} affected rows"
     );
 
     log::debug!("Transaction: Attempting to commit");
@@ -186,15 +180,14 @@ async fn update_with_temp_table(
 fn replace_entries_query(to_table: &str, from_table: &str) -> String {
     format!(
         "
-INSERT INTO \"{}\" (id, published, modified, data)
+INSERT INTO \"{to_table}\" (id, published, modified, data)
 SELECT *
-FROM \"{}\"
+FROM \"{from_table}\"
 ON CONFLICT (id) DO UPDATE 
     SET published = excluded.published,
         modified  = excluded.modified,
         data      = excluded.data;
-        ",
-        to_table, from_table
+        "
     )
 }
 
@@ -260,10 +253,7 @@ pub async fn add_new_update_and_delete(
     table_name: &str,
 ) -> Result<u64, sqlx::Error> {
     log::info!(
-        "Adding, updating and deleting entries in database, table name: {}. New entries file: {:?}. Update entries file: {:?}",
-        table_name,
-        new_entries_file_path,
-        to_update_entries_file_path
+        "Adding, updating and deleting entries in database, table name: {table_name}. New entries file: {new_entries_file_path:?}. Update entries file: {to_update_entries_file_path:?}"
     );
     let processing_start = Instant::now();
 
@@ -299,8 +289,7 @@ pub async fn add_new_update_and_delete(
     let result = tx_conn.execute(sqlx::query(&query_str)).await?;
     let affected_rows = result.rows_affected();
     log::debug!(
-        "Transaction insert from temp, {} affected rows",
-        affected_rows
+        "Transaction insert from temp, {affected_rows} affected rows"
     );
 
     log::debug!("Transaction: Attempting to commit");

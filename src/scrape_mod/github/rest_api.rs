@@ -1,13 +1,11 @@
-use std::{collections::HashSet, fs, path::Path};
+use std::{fs, path::Path};
 
-use chrono::Utc;
-use regex::Regex;
 use serde::Deserialize;
 
 use crate::{config::Config, csv_postgres_integration::GeneralizedCsvRecord};
 
 use super::{
-    api_response::GitHubAdvisoryAPIResponse, paginated_api::PaginatedApiDataIter,
+    paginated_api::PaginatedApiDataIter,
     GithubApiDownloadError, GithubType,
 };
 
@@ -37,8 +35,7 @@ pub async fn api_data_after_update_date_single_csv_file(
         .from_path(csv_file_path)?;
 
     log::info!(
-        "Performing requests to the GitHub API and saving data to CSV. CSV File created at {:?}",
-        csv_file_path
+        "Performing requests to the GitHub API and saving data to CSV. CSV File created at {csv_file_path:?}"
     );
 
     let mut paginated_iter = PaginatedApiDataIter::new(

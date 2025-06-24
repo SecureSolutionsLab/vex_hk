@@ -46,8 +46,7 @@ impl<'a> PaginatedApiDataIter<'a> {
             .query(query)
             .build()?;
         log::debug!(
-            "Created PaginatedApiDataIter. Main request:\n{:#?}",
-            request
+            "Created PaginatedApiDataIter. Main request:\n{request:#?}"
         );
 
         Ok(Self {
@@ -89,7 +88,7 @@ impl<'a> PaginatedApiDataIter<'a> {
             .client
             .execute(self.request.try_clone().unwrap())
             .await?;
-        log::debug!("Received response:\n{:#?}", response);
+        log::debug!("Received response:\n{response:#?}");
 
         let next_url_opt = if let Some(link_header) = response.headers().get("link") {
             self.header_next_pattern
