@@ -83,7 +83,14 @@ async fn main() -> anyhow::Result<()> {
             err
         )
     })?;
-    let mut state = read_state(&config)?;
+    let mut state = read_state(&config).map_err(|err| {
+        anyhow::anyhow!(
+            "Failed to read state {:?}. State misstructured or corrupted.\n{}",
+            config.state_file_location,
+            err
+        )
+    })?;
+
     let db_pool = vex_hk::get_db_connection().await.unwrap();
     let client = reqwest::Client::new();
 

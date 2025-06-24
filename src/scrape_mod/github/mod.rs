@@ -14,7 +14,7 @@ pub mod repository;
 pub mod repository_update;
 pub mod rest_api;
 
-use std::{fmt::Display, time::Duration};
+use std::{fmt::Display};
 
 use const_format::formatcp;
 use paginated_api::PaginatedApiDataIterError;
@@ -35,9 +35,6 @@ const UPDATE_UPDATED_FILES_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unrev
 // ids come in the format of GHSA-xxxx-xxxx-xxxx
 const GITHUB_ID_CHARACTERS: usize = 19;
 const GITHUB_ID_SQL_TYPE: &str = formatcp!("CHARACTER({})", GITHUB_ID_CHARACTERS);
-
-// max 900 request per minute (60 / 900)
-const MIN_TIME_BETWEEN_REQUESTS: Duration = Duration::new(0, 66666667);
 
 const API_REQUESTS_LIMIT: usize = 5000;
 

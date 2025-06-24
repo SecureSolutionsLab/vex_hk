@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs, io};
+use std::{collections::HashSet, fs, io, time::Instant};
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -92,8 +92,8 @@ pub enum GithubCommitFileStatus {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GithubOsvUpdateError {
-    #[error("One of the commit files contains a status that isn't \"added\" or \"modified\" -> \"{0:?}\", and it is unknown to the program")]
-    UnhandledCommitFileStatus(GithubCommitFileStatus),
+    #[error("File {1} from commit {2} contains status \"{0:?}\" which is unknown to the program")]
+    UnhandledCommitFileStatus(GithubCommitFileStatus, String, String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -183,6 +183,7 @@ pub async fn update_osv(
     since_date: &chrono::DateTime<Utc>,
     pg_bars: &indicatif::MultiProgress,
 ) -> Result<(), GithubOsvUpdateError> {
+    let all_start = Instant::now();
     log::info!("Querying commits...");
     let commits_iter = PaginatedApiDataIter::new(
         client,
@@ -193,9 +194,14 @@ pub async fn update_osv(
         ],
     )?;
     let mut commits: Vec<GithubCommit> = commits_iter.exhaust().await?;
+    if commits.is_empty() {
+        log::info!("The list of commits is empty. No new updates are available. Exiting early.");
+        return Ok(());
+    }
+
     // sort commits by earliest first
     commits.sort_by(|a, b| a.try_get_date().cmp(b.try_get_date()));
-    log::info!("Received {} commits. Processing.", commits.len());
+    log::info!("Received {} commits ({:?}). Processing.", commits.len(), all_start.elapsed());
     log::debug!("{:#?}", commits);
 
     let mut to_add_files: HashSet<String> = HashSet::new();
@@ -242,6 +248,8 @@ pub async fn update_osv(
         }
     }
 
+    log::info!("Reading and processing commit files");
+    let commit_files_start = Instant::now();
     {
         let mut new_reviewed_writer = csv::WriterBuilder::new()
             .has_headers(false)
@@ -311,6 +319,8 @@ pub async fn update_osv(
                             _ => {
                                 return Err(GithubOsvUpdateError::UnhandledCommitFileStatus(
                                     file.status,
+                                    filename.to_owned(),
+                                    commit.url
                                 ));
                             }
                         }
@@ -328,13 +338,16 @@ pub async fn update_osv(
     }
 
     log::info!(
-        "Update status: {} new files, {} to modify, {} to remove, {} skipped because of multiple commits.",
+        "Update status: {} new files, {} to modify, {} to remove, {} skipped because of multiple commits ({:?}).",
         to_add_files.len(),
         to_update_files.len(),
         to_delete_files.len(),
-        skipped
+        skipped,
+        commit_files_start.elapsed()
     );
 
+    log::info!("Downloading updated files");
+    let download_updated_files_start = Instant::now();
     {
         let mut updated_reviewed_writer = csv::WriterBuilder::new()
             .has_headers(false)
@@ -371,7 +384,7 @@ pub async fn update_osv(
         updated_reviewed_writer.flush()?;
         updated_unreviewed_writer.flush()?;
     }
-    log::info!("All downloads finished.");
+    log::info!("All downloads finished. Time: {:?}", download_updated_files_start.elapsed());
 
     let mut to_delete_ids_reviewed = Vec::new();
     let mut to_delete_ids_unreviewed = Vec::new();
@@ -410,6 +423,7 @@ pub async fn update_osv(
     .await
     .map_err(|err| anyhow::anyhow!("Failed to update database (unreviewed):\n{}", err))?;
 
+    log::info!("Finished updating database. Total time: {:?}", all_start.elapsed());
     Ok(())
 }
 

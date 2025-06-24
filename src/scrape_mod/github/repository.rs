@@ -14,13 +14,13 @@ use crate::{
     csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
     scrape_mod::github::{
-        GithubType, TEMP_CSV_FILE_REVIEWED_NAME, TEMP_CSV_FILE_UNREVIEWED_NAME,
-        TEMP_DOWNLOAD_FILE_NAME,
+        repository_update::GithubOsvUpdateError, GithubType, TEMP_CSV_FILE_REVIEWED_NAME,
+        TEMP_CSV_FILE_UNREVIEWED_NAME, TEMP_DOWNLOAD_FILE_NAME,
     },
     state::ScraperState,
 };
 
-use super::{OSVGitHubExtended, GITHUB_ID_CHARACTERS};
+use super::{OSVGitHubExtended};
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 
@@ -44,7 +44,7 @@ pub async fn manual_download_and_save_state(
 pub async fn sync(
     config: &Config,
     client: &reqwest::Client,
-    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    db_pool: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
     state: &mut ScraperState,
 ) -> anyhow::Result<()> {
@@ -54,135 +54,50 @@ pub async fn sync(
 
     if !state.github.osv.initialized {
         log::info!("GitHub OSV is not initialized. Performing initial download.");
-        return manual_download_and_save_state(config, client, db_connection, pg_bars, state).await;
+        return manual_download_and_save_state(config, client, db_pool, pg_bars, state).await;
     }
 
-    todo!();
-    // if config.github.osv.use_api_for_update {
-    //     let Some(token) = config.tokens.github.as_ref() else {
-    //         return Err(anyhow::anyhow!(
-    //             "GitHub use_api_for_update enabled but API token not set. Bailing out."
-    //         ));
-    //     };
-    //     let Some(last_timestamp_reviewed) =
-    //         state.github.osv.last_update_timestamp_reviewed.as_ref()
-    //     else {
-    //         log::error!("GitHub OSV initialized, however last_timestamp_unreviewed is null. Data may be corrupted. Redownloading.");
-    //         state.github.osv.initialized = false;
-    //         return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
-    //             .await;
-    //     };
-    //     let Some(last_timestamp_unreviewed) =
-    //         state.github.osv.last_update_timestamp_unreviewed.as_ref()
-    //     else {
-    //         log::error!("GitHub OSV initialized, however last_timestamp_reviewed is null. Data may be corrupted. Redownloading.");
-    //         state.github.osv.initialized = false;
-    //         return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
-    //             .await;
-    //     };
+    if config.github.osv.use_api_for_update {
+        let Some(token) = config.tokens.github.as_ref() else {
+            return Err(anyhow::anyhow!(
+                "GitHub use_api_for_update enabled but API token not set. Bailing out."
+            ));
+        };
+        let Some(last_timestamp) = state.github.osv.last_update_timestamp.as_ref() else {
+            log::error!("GitHub OSV initialized, however last_timestamp_unreviewed is null. Data may be corrupted. Redownloading.");
+            state.github.osv.initialized = false;
+            return manual_download_and_save_state(config, client, db_pool, pg_bars, state).await;
+        };
 
-    //     let start_time = Utc::now();
-    //     let update_inst = Instant::now();
+        let start_time = Utc::now();
+        let update_inst = Instant::now();
 
-    //     let essentials_inst = update_inst.clone();
-    //     log::info!(
-    //         "Requesting a list of reviewed modified advisories after {}",
-    //         last_timestamp_reviewed.format("%Y/%m/%d")
-    //     );
-    //     let essentials_reviewed = super::rest_api::get_only_essential_after_modified_date(
-    //         config,
-    //         client,
-    //         token,
-    //         last_timestamp_reviewed,
-    //         GithubType::Reviewed,
-    //     )
-    //     .await?;
-    //     log::info!(
-    //         "Requesting a list of unreviewed modified advisories after {}",
-    //         last_timestamp_reviewed.format("%Y/%m/%d")
-    //     );
-    //     let essentials_unreviewed = super::rest_api::get_only_essential_after_modified_date(
-    //         config,
-    //         client,
-    //         token,
-    //         last_timestamp_unreviewed,
-    //         GithubType::Unreviewed,
-    //     )
-    //     .await?;
-    //     log::info!(
-    //         "Request finished. Total time: {:?}. Total number of advisories: {} reviewed, {} unreviewed)",
-    //         essentials_inst.elapsed(),
-    //         essentials_reviewed.len(),
-    //         essentials_unreviewed.len()
-    //     );
-
-    //     if essentials_reviewed.len() + essentials_unreviewed.len()
-    //         >= config.github.osv.full_download_threshold
-    //     {
-    //         log::warn!(
-    //             "Threshold reached for API to OSV updates ({} >= {}). Performing full download.",
-    //             essentials_reviewed.len() + essentials_unreviewed.len(),
-    //             config.github.osv.full_download_threshold
-    //         );
-    //         return manual_download_and_save_state(config, client, db_connection, pg_bars, state)
-    //             .await;
-    //     }
-
-    //     let GithubOsvUpdate::AllOk(updated_reviewed) =
-    //         super::repository_update::update_osv_database_incremental(
-    //             config,
-    //             db_connection,
-    //             pg_bars,
-    //             client,
-    //             token,
-    //             GithubType::Reviewed,
-    //             essentials_reviewed,
-    //         )
-    //         .await?
-    //     else {
-    //         log::warn!(
-    //             "Reviewed update got rate limited. Postponing update. Time: {:?}",
-    //             update_inst.elapsed()
-    //         );
-    //         return Ok(());
-    //     };
-    //     log::info!(
-    //         "GitHub reviewed OSV table updated. {} rows modified. Time: {:?}",
-    //         updated_reviewed,
-    //         update_inst.elapsed()
-    //     );
-    //     state.save_update_github_osv_reviewed(config, start_time);
-
-    //     let GithubOsvUpdate::AllOk(updated_unreviewed) =
-    //         super::repository_update::update_osv_database_incremental(
-    //             config,
-    //             db_connection,
-    //             pg_bars,
-    //             client,
-    //             token,
-    //             GithubType::Unreviewed,
-    //             essentials_unreviewed,
-    //         )
-    //         .await?
-    //     else {
-    //         log::warn!(
-    //             "Unreviewed update got rate limited. Postponing update. Time: {:?}",
-    //             update_inst.elapsed()
-    //         );
-    //         return Ok(());
-    //     };
-    //     log::info!(
-    //         "GitHub unreviewed OSV table updated. {} rows modified. Time: {:?}",
-    //         updated_unreviewed,
-    //         update_inst.elapsed()
-    //     );
-    //     state.save_update_github_osv_unreviewed(config, start_time);
-
-    //     log::info!("GitHub OSV table update finished successfully.");
-    // } else {
-    //     log::info!("GitHub OSV API update disabled. Performing full download.");
-    //     return manual_download_and_save_state(config, client, db_connection, pg_bars, state).await;
-    // }
+        if let Err(err) = super::repository_update::update_osv(
+            config,
+            client,
+            db_pool,
+            &token,
+            last_timestamp,
+            pg_bars,
+        )
+        .await
+        {
+            match err {
+                GithubOsvUpdateError::UnhandledCommitFileStatus(_, _, _) => {
+                    log::warn!("{}. Attempting a whole download instead.", err);
+                }
+                GithubOsvUpdateError::Other(other_err) => {
+                    log::error!("Repository update returned an unrecoverable error:\n{}\nAttempting a whole download.", other_err);
+                }
+            }
+            return manual_download_and_save_state(config, client, db_pool, pg_bars, state).await;
+        }
+        state.save_update_github_osv(config, start_time);
+        log::info!("GitHub OSV table update finished successfully in {:?}.", update_inst.elapsed());
+    } else {
+        log::info!("GitHub OSV API update disabled. Performing full download.");
+        return manual_download_and_save_state(config, client, db_pool, pg_bars, state).await;
+    }
 
     Ok(())
 }
@@ -198,7 +113,7 @@ pub async fn sync(
 pub async fn download_osv_full(
     config: &Config,
     client: &reqwest::Client,
-    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    db_pool: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
     recreate_database_table: bool,
 ) -> anyhow::Result<()> {
@@ -223,7 +138,7 @@ pub async fn download_osv_full(
     if recreate_database_table {
         log::info!("Recreating database table.");
         let database_delete_start = Instant::now();
-        db_connection
+        db_pool
             .execute(
                 QueryBuilder::<Postgres>::new(format!(
                     "DROP TABLE IF EXISTS \"{}\";\nDROP TABLE IF EXISTS \"{}\";\n{}\n{}",
@@ -247,14 +162,14 @@ pub async fn download_osv_full(
         );
 
         csv_postgres_integration::send_csv_to_database_whole(
-            &db_connection,
+            &db_pool,
             &csv_path_reviewed,
             GithubType::Reviewed.osv_table_name(config),
             row_count_reviewed,
         )
         .await?;
         csv_postgres_integration::send_csv_to_database_whole(
-            &db_connection,
+            &db_pool,
             &csv_path_unreviewed,
             GithubType::Unreviewed.osv_table_name(config),
             row_count_unreviewed,
@@ -268,13 +183,13 @@ pub async fn download_osv_full(
         );
 
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
-            &db_connection,
+            &db_pool,
             &csv_path_reviewed,
             GithubType::Reviewed.osv_table_name(config),
         )
         .await?;
         csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
-            &db_connection,
+            &db_pool,
             &csv_path_unreviewed,
             GithubType::Unreviewed.osv_table_name(config),
         )
