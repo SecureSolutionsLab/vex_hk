@@ -94,6 +94,13 @@ impl GithubType {
         }
     }
 
+    pub const fn csv_general_tmp_file_path(self) -> &'static str {
+        match self {
+            Self::Reviewed => TMP_CSV_FILE_REVIEWED_NAME,
+            Self::Unreviewed => TMP_CSV_FILE_UNREVIEWED_NAME,
+        }
+    }
+
     pub const fn csv_new_files_update_path(self) -> &'static str {
         match self {
             Self::Reviewed => UPDATE_NEW_FILES_CSV_FILE_PATH_REVIEWED,
@@ -122,9 +129,30 @@ impl GithubType {
         }
     }
 
+    pub fn api_initialization_table_name(self, config: &Config) -> &str {
+        match self {
+            Self::Reviewed => &config.github.api.reviewed_incomplete_table_name,
+            Self::Unreviewed => &config.github.api.unreviewed_incomplete_table_name,
+        }
+    }
+
     pub fn osv_format_sql_create_table_command(self, config: &Config) -> String {
         csv_postgres_integration::format_sql_create_table_command(
             self.osv_table_name(config),
+            GITHUB_ID_SQL_TYPE,
+        )
+    }
+
+    pub fn api_initialization_format_sql_create_table_command(self, config: &Config) -> String {
+        csv_postgres_integration::format_sql_create_table_command(
+            self.api_initialization_table_name(config),
+            GITHUB_ID_SQL_TYPE,
+        )
+    }
+
+    pub fn api_format_sql_create_table_command(self, config: &Config) -> String {
+        csv_postgres_integration::format_sql_create_table_command(
+            self.api_table_name(config),
             GITHUB_ID_SQL_TYPE,
         )
     }

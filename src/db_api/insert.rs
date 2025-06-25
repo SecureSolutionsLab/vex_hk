@@ -1,7 +1,7 @@
 use crate::db_api::{db_connection::get_db_connection, utils::execute_query_data};
 use log::{error, info};
 use serde_json::json;
-use sqlx::{query, Error, PgPool};
+use sqlx::{query, Error, Executor, PgConnection, PgPool};
 use std::time::Instant;
 
 /// Inserts data into a database table sequentially.
@@ -208,5 +208,17 @@ pub async fn insert_parallel_cve(
         &submit_configuration)
         .execute(db_conn)
         .await?;
+    Ok(())
+}
+
+pub async fn execute_insert_from_one_table_to_another(
+    conn: &mut PgConnection,
+    from_table_name: &str,
+    to_table_name: &str,
+) -> Result<(), sqlx::Error> {
+    log::debug!("Inserting all entries from table {from_table_name} to {to_table_name}");
+    let query_str = format!("INSERT INTO {to_table_name} SELECT * FROM {from_table_name};");
+    let query = sqlx::query(&query_str);
+    conn.execute(query).await?;
     Ok(())
 }
