@@ -16,9 +16,9 @@
 use std::{path::Path, time::Instant};
 
 use serde::{Deserialize, Serialize};
-use sqlx::{Execute, Executor, Postgres, QueryBuilder};
+use sqlx::{Execute, Executor, PgConnection, Postgres, QueryBuilder};
 
-use crate::{db_api, default_config, osv_schema::OSV};
+use crate::{db_api, osv_schema::Osv};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CsvCreationError {
@@ -43,6 +43,17 @@ pub fn format_sql_create_table_command(table_name: &str, id_sql_type: &str) -> S
     )
 }
 
+pub async fn execute_create_table(
+    conn: &mut PgConnection,
+    table_name: &str,
+    id_sql_type: &str,
+) -> Result<(), sqlx::Error> {
+    log::debug!("Creating table \"{table_name}\"");
+    let query_str = format_sql_create_table_command(table_name, id_sql_type);
+    conn.execute(sqlx::query(&query_str)).await?;
+    Ok(())
+}
+
 /// Generalized row information to be set to a database
 ///
 /// Stores id, published and modified information, together with arbitrary json as strings, for serialization/deserialization purposes.
@@ -65,7 +76,7 @@ impl GeneralizedCsvRecord {
     }
 
     /// Serialize data from OSV. The whole OSV is stored in the json field.
-    pub fn from_osv<T: Serialize>(data: OSV<T>) -> Self {
+    pub fn from_osv<T: Serialize>(data: Osv<T>) -> Self {
         let id = data.id.clone();
         let published = data.published.unwrap_or(data.modified).to_rfc3339();
         let modified = data.modified.to_rfc3339();
@@ -104,19 +115,16 @@ impl GeneralizedCsvRecord {
 /// Read CSV and send data **as is** to Postgres. This does not perform any checks, other by forwarding errors returned by Postgres itself.
 ///
 /// This does NOT replace data, only inserts it. It will return an error on conflict.
-pub async fn send_csv_to_database_whole(
-    db_pool: &sqlx::Pool<sqlx::Postgres>,
+pub async fn execute_send_csv_to_database_whole(
+    conn: &mut PgConnection,
     file_path: &Path,
     table_name: &str,
     expected_rows_count: usize,
 ) -> Result<(), sqlx::Error> {
-    log::info!(
-        "Opening {file_path:?} and sending whole to database, table name: {table_name}"
-    );
+    log::info!("Opening {file_path:?} and sending whole to database, table name: {table_name}");
     let processing_start = Instant::now();
-    let mut conn = db_pool.acquire().await?;
     let result =
-        db_api::copy::execute_read_file_and_copy_to_table(&mut conn, table_name, file_path).await?;
+        db_api::copy::execute_read_file_and_copy_to_table(conn, table_name, file_path).await?;
     assert_eq!(result as usize, expected_rows_count);
 
     log::info!("Finished sending CSV in {:?}", processing_start.elapsed());
@@ -125,9 +133,10 @@ pub async fn send_csv_to_database_whole(
 }
 
 async fn update_with_temp_table(
-    db_pool: &sqlx::Pool<sqlx::Postgres>,
+    conn: &mut PgConnection,
     file_path: &Path,
     table_name: &str,
+    temp_table_name: &str,
     mut insert_query: sqlx::QueryBuilder<'_, sqlx::Postgres>,
 ) -> Result<u64, sqlx::Error> {
     log::info!(
@@ -135,38 +144,18 @@ async fn update_with_temp_table(
     );
     let processing_start = Instant::now();
 
-    // rollback is called if this functions exits early on error
-    let mut tx = db_pool.begin().await?;
-    // if sqlx updates in the future, they will probably change this, but this is how it's in the
-    // main docs, as of writing
-    let tx_conn = &mut *tx;
-
     log::debug!("Transaction: creating temporary table");
-    db_api::create::execute_create_tmp_table_drop_on_commit(
-        tx_conn,
-        default_config::TEMP_TABLE_NAME,
-        table_name,
-    )
-    .await?;
+    db_api::create::execute_create_tmp_table_drop_on_commit(conn, temp_table_name, table_name)
+        .await?;
 
     log::debug!("Transaction: copying stdin data to temp table");
-    db_api::copy::execute_read_file_and_copy_to_table(
-        tx_conn,
-        default_config::TEMP_TABLE_NAME,
-        file_path,
-    )
-    .await?;
+    db_api::copy::execute_read_file_and_copy_to_table(conn, temp_table_name, file_path).await?;
 
     // copy from temp to real table
     log::debug!("Transaction: copying data from temp table and updating");
-    let result = tx_conn.execute(insert_query.build().sql()).await?;
+    let result = conn.execute(insert_query.build().sql()).await?;
     let affected_rows = result.rows_affected();
-    log::debug!(
-        "Transaction insert from temp, {affected_rows} affected rows"
-    );
-
-    log::debug!("Transaction: Attempting to commit");
-    tx.commit().await?;
+    log::debug!("Transaction insert from temp, {affected_rows} affected rows");
 
     log::info!(
         "Finished updating CSV in {:?}, {} affected rows",
@@ -197,18 +186,17 @@ ON CONFLICT (id) DO UPDATE
 ///
 /// Returns number of affected rows
 pub async fn insert_and_replace_any_in_database_from_csv(
-    db_pool: &sqlx::Pool<sqlx::Postgres>,
+    conn: &mut PgConnection,
     file_path: &Path,
     table_name: &str,
+    temp_table_name: &str,
 ) -> Result<u64, sqlx::Error> {
     update_with_temp_table(
-        db_pool,
+        conn,
         file_path,
         table_name,
-        QueryBuilder::<Postgres>::new(replace_entries_query(
-            table_name,
-            default_config::TEMP_TABLE_NAME,
-        )),
+        temp_table_name,
+        QueryBuilder::<Postgres>::new(replace_entries_query(table_name, temp_table_name)),
     )
     .await
 }
@@ -218,82 +206,67 @@ pub async fn insert_and_replace_any_in_database_from_csv(
 /// This function DOES replace data, newer entries replacing older ones IF modified date is higher than the previous one.
 ///
 /// Returns number of affected rows
-pub async fn insert_and_replace_older_entries_in_database_from_csv(
-    db_pool: &sqlx::Pool<sqlx::Postgres>,
+pub async fn execute_insert_and_replace_older_entries_in_database_from_csv(
+    conn: &mut PgConnection,
     file_path: &Path,
     table_name: &str,
+    temp_table_name: &str,
 ) -> Result<u64, sqlx::Error> {
     update_with_temp_table(
-        db_pool,
+        conn,
         file_path,
         table_name,
+        temp_table_name,
         QueryBuilder::<Postgres>::new(format!(
             "
-INSERT INTO \"{}\" AS orig (id, published, modified, data)
+INSERT INTO \"{table_name}\" AS orig (id, published, modified, data)
 SELECT *
-FROM \"{}\"
+FROM \"{temp_table_name}\"
 ON CONFLICT (id) DO UPDATE 
     SET published = excluded.published,
         modified  = excluded.modified,
         data      = excluded.data
             WHERE orig.modified < excluded.modified;
-        ",
-            table_name,
-            default_config::TEMP_TABLE_NAME
+        "
         )),
     )
     .await
 }
 
-pub async fn add_new_update_and_delete(
-    db_pool: &sqlx::Pool<sqlx::Postgres>,
+pub async fn execute_add_new_update_and_delete(
+    conn: &mut PgConnection,
     new_entries_file_path: &Path,
     to_update_entries_file_path: &Path,
     to_delete_entries: &[&str],
     table_name: &str,
+    temp_table_name: &str,
 ) -> Result<u64, sqlx::Error> {
     log::info!(
         "Adding, updating and deleting entries in database, table name: {table_name}. New entries file: {new_entries_file_path:?}. Update entries file: {to_update_entries_file_path:?}"
     );
     let processing_start = Instant::now();
 
-    // rollback is called if this functions exits early on error
-    let mut tx = db_pool.begin().await?;
-    // if sqlx updates in the future, they will probably change this, but this is how it's in the
-    // main docs, as of writing
-    let tx_conn = &mut *tx;
-
     let deleted_rows =
-        db_api::delete::execute_delete_entries_by_id_slow(tx_conn, table_name, to_delete_entries)
+        db_api::delete::execute_delete_entries_by_id_slow(conn, table_name, to_delete_entries)
             .await?;
     assert_eq!(deleted_rows, to_delete_entries.len());
-    db_api::create::execute_create_tmp_table_drop_on_commit(
-        tx_conn,
-        default_config::TEMP_TABLE_NAME,
-        table_name,
-    ).await?;
+    db_api::create::execute_create_tmp_table_drop_on_commit(conn, temp_table_name, table_name)
+        .await?;
     // both files should not contain duplicated entries
+    db_api::copy::execute_read_file_and_copy_to_table(conn, temp_table_name, new_entries_file_path)
+        .await?;
     db_api::copy::execute_read_file_and_copy_to_table(
-        tx_conn,
-        default_config::TEMP_TABLE_NAME,
-        new_entries_file_path,
-    ).await?;
-    db_api::copy::execute_read_file_and_copy_to_table(
-        tx_conn,
-        default_config::TEMP_TABLE_NAME,
+        conn,
+        temp_table_name,
         to_update_entries_file_path,
-    ).await?;
+    )
+    .await?;
 
     log::debug!("Transaction: copying data from temp table and updating");
-    let query_str = replace_entries_query(table_name, default_config::TEMP_TABLE_NAME);
-    let result = tx_conn.execute(sqlx::query(&query_str)).await?;
+    let query_str = replace_entries_query(table_name, temp_table_name);
+    let result = conn.execute(sqlx::query(&query_str)).await?;
     let affected_rows = result.rows_affected();
-    log::debug!(
-        "Transaction insert from temp, {affected_rows} affected rows"
-    );
-
-    log::debug!("Transaction: Attempting to commit");
-    tx.commit().await?;
+    log::debug!("Transaction insert from temp, {affected_rows} affected rows");
 
     log::info!(
         "Finished updating CSV in {:?}, {} deleted rows, {} inserted or updated rows",

@@ -1,13 +1,18 @@
 use std::{fs, path::Path};
 
-use serde::Deserialize;
-
 use crate::{config::Config, csv_postgres_integration::GeneralizedCsvRecord};
 
-use super::{
-    paginated_api::PaginatedApiDataIter,
-    GithubApiDownloadError, GithubType,
-};
+use super::{paginated_api::PaginatedApiDataIter, GithubApiDownloadError, GithubType};
+
+pub async fn download_all_entries(
+    config: &Config,
+    db_pool: &sqlx::Pool<sqlx::Postgres>,
+    client: &reqwest::Client,
+    token: &str,
+    ty: GithubType
+) {
+    
+}
 
 /// Download and save data in one single csv file, in [crate::csv_postgres_integration::GeneralizedCsvRecord] format
 ///

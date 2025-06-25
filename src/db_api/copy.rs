@@ -8,7 +8,7 @@ pub async fn execute_read_file_and_copy_to_table(
     table_name: &str,
     file_path: &Path,
 ) -> Result<u64, sqlx::Error> {
-    log::debug!("Opening file and copying contents to table (error on conflict)");
+    log::debug!("Opening file {file_path:?} and copying contents to table {table_name:?} (error on conflict)");
     let mut copy_conn = conn
         .copy_in_raw(&format!(
             "COPY \"{table_name}\" FROM STDIN (FORMAT csv, DELIMITER ',')"

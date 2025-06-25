@@ -65,13 +65,11 @@ impl ScraperState {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ScraperStateOsv {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
-
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct ScraperStateGithub {
@@ -79,21 +77,17 @@ pub struct ScraperStateGithub {
     pub api: ScraperStateGithubApi,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ScraperStateGithubOsv {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
 
-
-#[derive(Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ScraperStateGithubApi {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
-
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Tokens {

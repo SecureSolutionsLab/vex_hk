@@ -8,12 +8,13 @@ use std::{
 };
 use zip::ZipArchive;
 
-use super::{OSV_ID_MAX_CHARACTERS, OSV_ID_SQL_TYPE, TEMP_CSV_FILE_NAME, TEMP_DOWNLOAD_FILE_NAME};
+use super::{OSV_ID_MAX_CHARACTERS, OSV_ID_SQL_TYPE, TMP_CSV_FILE_NAME, TMP_DOWNLOAD_FILE_NAME};
 use crate::{
     config::Config,
     csv_postgres_integration::{self, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
     osv_schema::OSVGeneralized,
+    scrape_mod::osv::TMP_TABLE_NAME,
     state::ScraperState,
 };
 
@@ -45,7 +46,7 @@ pub async fn manual_download_and_save_state(
 pub async fn scrape_osv_full(
     config: &Config,
     client: &reqwest::Client,
-    db_connection: &sqlx::Pool<sqlx::Postgres>,
+    db_pool: &sqlx::Pool<sqlx::Postgres>,
     pg_bars: &indicatif::MultiProgress,
     recreate_database_table: bool,
 ) -> anyhow::Result<()> {
@@ -54,23 +55,22 @@ pub async fn scrape_osv_full(
 
     log::info!("Starting full OSV database download.");
 
-    let download_path = config.temp_dir_path.join(TEMP_DOWNLOAD_FILE_NAME);
-    let csv_path = config.temp_dir_path.join(TEMP_CSV_FILE_NAME);
+    let download_path = config.temp_dir_path.join(TMP_DOWNLOAD_FILE_NAME);
+    let csv_path = config.temp_dir_path.join(TMP_CSV_FILE_NAME);
 
-    download_and_save_to_file_in_chunks(
-        client,
-        &osv_status.full_data_url,
-        &download_path,
-        pg_bars,
-    )
-    .await?;
+    download_and_save_to_file_in_chunks(client, &osv_status.full_data_url, &download_path, pg_bars)
+        .await?;
 
     let row_count = create_csv(&download_path, &csv_path, pg_bars).await?;
+
+    log::info!("Starting OSV full download transaction.");
+    let mut tx = db_pool.begin().await?;
+    let tx_conn = &mut *tx;
 
     if recreate_database_table {
         log::info!("Recreating database table.");
         let database_delete_start = Instant::now();
-        db_connection
+        tx_conn
             .execute(
                 QueryBuilder::<Postgres>::new(format!(
                     "DROP TABLE IF EXISTS \"{}\";\n{}",
@@ -94,22 +94,21 @@ pub async fn scrape_osv_full(
             database_delete_start.elapsed()
         );
 
-        csv_postgres_integration::send_csv_to_database_whole(
-            db_connection,
+        csv_postgres_integration::execute_send_csv_to_database_whole(
+            tx_conn,
             &csv_path,
             &osv_status.table_name,
             row_count,
         )
         .await?;
     } else {
-        log::info!(
-            "Attempting an update on the existing table. Number of entries: {row_count}",
-        );
+        log::info!("Attempting an update on the existing table. Number of entries: {row_count}",);
 
-        csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
-            db_connection,
+        csv_postgres_integration::execute_insert_and_replace_older_entries_in_database_from_csv(
+            tx_conn,
             &csv_path,
             &osv_status.table_name,
+            TMP_TABLE_NAME,
         )
         .await?;
     }
@@ -187,15 +186,14 @@ pub async fn create_csv(
                 res_ok
             };
             let id = &osv_record.id;
-            if id.len() > OSV_ID_MAX_CHARACTERS
-                && id.chars().count() > OSV_ID_MAX_CHARACTERS {
-                    panic!(
-                        "ID {} has more characters ({}) than the maximum set to the database ({})",
-                        id,
-                        id.chars().count(),
-                        OSV_ID_MAX_CHARACTERS
-                    );
-                }
+            if id.len() > OSV_ID_MAX_CHARACTERS && id.chars().count() > OSV_ID_MAX_CHARACTERS {
+                panic!(
+                    "ID {} has more characters ({}) than the maximum set to the database ({})",
+                    id,
+                    id.chars().count(),
+                    OSV_ID_MAX_CHARACTERS
+                );
+            }
 
             let generalized = GeneralizedCsvRecord::from_osv(osv_record);
             csv_writer.write_record(generalized.as_row())?;

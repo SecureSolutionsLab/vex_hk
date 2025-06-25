@@ -46,9 +46,7 @@ pub async fn _insert_db_sequential<T: serde::Serialize>(
 ) -> Result<(), Error> {
     let instant = Instant::now();
     let db = get_db_connection().await?;
-    let sql_query = format!(
-        "INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])"
-    );
+    let sql_query = format!("INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])");
     for value in &cve {
         let json_cve = json!(value);
         match query(&sql_query).bind(&json_cve).execute(&db).await {
@@ -108,9 +106,7 @@ pub async fn insert_parallel<T: serde::Serialize>(
     column: &str,
     data: &[T],
 ) -> Result<(), Error> {
-    let sql_query = format!(
-        "INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])"
-    );
+    let sql_query = format!("INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])");
     let submit_data: Vec<_> = data.iter().map(|cve| json!(cve)).collect();
     execute_query_data(db_conn, &sql_query, &submit_data).await?;
     Ok(())
@@ -124,9 +120,7 @@ pub async fn insert_parallel_json(
     column: &str,
     data: &[serde_json::Value],
 ) -> Result<(), Error> {
-    let sql_query = format!(
-        "INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])"
-    );
+    let sql_query = format!("INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])");
     execute_query_data(db_conn, &sql_query, data).await?;
     Ok(())
 }
@@ -140,9 +134,7 @@ pub async fn insert_parallel_string_json(
     column: &str,
     data: &[&str],
 ) -> Result<(), Error> {
-    let sql_query = format!(
-        "INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])"
-    );
+    let sql_query = format!("INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])");
     execute_query_data(db_conn, &sql_query, data).await?;
     Ok(())
 }

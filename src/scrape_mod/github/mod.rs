@@ -14,22 +14,25 @@ pub mod repository;
 pub mod repository_update;
 pub mod rest_api;
 
-use std::{fmt::Display};
+use std::fmt::Display;
 
 use const_format::formatcp;
 use paginated_api::PaginatedApiDataIterError;
 use serde::{Deserialize, Serialize};
 
-use crate::{config::Config, csv_postgres_integration, download::DownloadError, osv_schema::OSV};
+use crate::{config::Config, csv_postgres_integration, download::DownloadError, osv_schema::Osv};
 
-const TEMP_DOWNLOAD_FILE_NAME: &str = "github_all_temp.zip";
-const TEMP_CSV_FILE_REVIEWED_NAME: &str = "github_reviewed_temp.csv";
-const TEMP_CSV_FILE_UNREVIEWED_NAME: &str = "github_unreviewed_temp.csv";
+const TMP_DOWNLOAD_FILE_NAME: &str = "github_all_tmp.zip";
+const TMP_CSV_FILE_REVIEWED_NAME: &str = "github_reviewed_tmp.csv";
+const TMP_CSV_FILE_UNREVIEWED_NAME: &str = "github_unreviewed_tmp.csv";
 
 const UPDATE_NEW_FILES_CSV_FILE_PATH_REVIEWED: &str = "github_update_new_reviewed.csv";
 const UPDATE_NEW_FILES_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_new_unreviewed.csv";
 const UPDATE_UPDATED_FILES_CSV_FILE_PATH_REVIEWED: &str = "github_update_reviewed.csv";
 const UPDATE_UPDATED_FILES_CSV_FILE_PATH_UNREVIEWED: &str = "github_update_unreviewed.csv";
+
+const TMP_REVIEWED_TABLE_NAME: &str = "vex_hk_github_reviewed_tmp";
+const TMP_UNREVIEWED_TABLE_NAME: &str = "vex_hk_github_unreviewed_tmp";
 
 // https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database
 // ids come in the format of GHSA-xxxx-xxxx-xxxx
@@ -38,7 +41,7 @@ const GITHUB_ID_SQL_TYPE: &str = formatcp!("CHARACTER({})", GITHUB_ID_CHARACTERS
 
 const API_REQUESTS_LIMIT: usize = 5000;
 
-pub type OSVGitHubExtended = OSV<GitHubDatabaseSpecific>;
+pub type OsvGithubExtended = Osv<GitHubDatabaseSpecific>;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct GitHubDatabaseSpecific {
@@ -157,13 +160,12 @@ impl From<DownloadError> for GithubApiDownloadError {
 }
 
 fn assert_osv_github_id(id: &str) {
-    if id.len() > GITHUB_ID_CHARACTERS
-        && id.chars().count() > GITHUB_ID_CHARACTERS {
-            panic!(
-                "ID {} has more characters ({}) than the maximum set to the database ({})",
-                id,
-                id.chars().count(),
-                GITHUB_ID_CHARACTERS
-            );
-        }
+    if id.len() > GITHUB_ID_CHARACTERS && id.chars().count() > GITHUB_ID_CHARACTERS {
+        panic!(
+            "ID {} has more characters ({}) than the maximum set to the database ({})",
+            id,
+            id.chars().count(),
+            GITHUB_ID_CHARACTERS
+        );
+    }
 }
