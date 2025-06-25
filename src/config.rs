@@ -93,7 +93,8 @@ pub struct ConfigGithubApi {
     pub reviewed_incomplete_table_name: String,
     /// Table name for storing incomplete data during initial population
     pub unreviewed_incomplete_table_name: String,
-    pub enable_update: bool,
+    pub enable_update_reviewed: bool,
+    pub enable_update_unreviewed: bool,
 }
 
 impl Default for ConfigGithubApi {
@@ -106,7 +107,8 @@ impl Default for ConfigGithubApi {
                 .to_owned(),
             unreviewed_incomplete_table_name:
                 defaults::github::api::INCOMPLETE_UNREVIEWED_TABLE_NAME.to_owned(),
-            enable_update: defaults::ENABLE_GITHUB_API,
+            enable_update_reviewed: defaults::ENABLE_GITHUB_API_REVIEWED,
+            enable_update_unreviewed: defaults::ENABLE_GITHUB_API_UNREVIEWED,
         }
     }
 }

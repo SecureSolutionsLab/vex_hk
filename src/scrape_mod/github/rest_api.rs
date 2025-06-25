@@ -1,6 +1,6 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Instant};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::{Execute, Executor, Postgres, QueryBuilder};
 
 use crate::{
@@ -13,6 +13,87 @@ use crate::{
 
 use super::{paginated_api::PaginatedApiDataIter, GithubApiDownloadError, GithubType};
 
+/// Perform download or update with regards to config and state
+pub async fn sync(
+    config: &Config,
+    state: &mut ScraperState,
+    db_pool: &sqlx::Pool<sqlx::Postgres>,
+    client: &reqwest::Client,
+    ty: GithubType,
+) -> anyhow::Result<()> {
+    let enable_update = match ty {
+        GithubType::Reviewed => config.github.api.enable_update_reviewed,
+        GithubType::Unreviewed => config.github.api.enable_update_unreviewed,
+    };
+    if !enable_update {
+        log::warn!("GitHub API sync called even though config is disabled. Continuing anyways.");
+    }
+
+    let Some(token) = config.tokens.github.as_ref() else {
+        return Err(anyhow::anyhow!(
+            "GitHub API token not set. GiHub API sync is not possible."
+        ));
+    };
+
+    if !state.get_github_api_state(ty).initialized {
+        log::info!(
+            "GitHub API ({ty}) is not initialized. Performing / continuing initial download."
+        );
+        return download_all_entries(config, state, db_pool, client, &token, ty).await;
+    }
+
+    let Some(last_timestamp) = state
+        .get_github_api_state(ty)
+        .last_update_timestamp
+        .as_ref()
+    else {
+        log::error!("GitHub API ({ty}) initialized, however last_timestamp is null. Data may be corrupted. Redownloading.");
+        state.get_github_api_state(ty).initialized = false;
+        return download_all_entries(config, state, db_pool, client, &token, ty).await;
+    };
+
+    log::info!("Beginning GitHub API update. Note that the API doesn't distinguish time intervals in less than a day, so multiple updates in a day can lead to the same results.");
+
+    let start_time = Utc::now();
+    let start_inst = Instant::now();
+    let csv_path = config.temp_dir_path.join(ty.csv_general_tmp_file_path());
+    {
+        let parent = csv_path.parent().unwrap();
+        if !fs::exists(parent)? {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let size = api_data_after_update_date_single_csv_file(
+        config,
+        client,
+        &token,
+        &csv_path,
+        *last_timestamp,
+        ty,
+    )
+    .await?;
+    if size > 0 {
+        let mut conn = db_pool.acquire().await?;
+        csv_postgres_integration::insert_and_replace_any_in_database_from_csv(
+            &mut conn,
+            &csv_path,
+            ty.api_table_name(config),
+            ty.tmp_table_name(),
+        )
+        .await?;
+    }
+    state.save_update_github_api(config, start_time, ty);
+    log::info!(
+        "Finished updating API. Entry count: {size}. Time: {:?}",
+        start_inst.elapsed()
+    );
+
+    Ok(())
+}
+
+/// Download all entries from the API for a specific type.
+///
+/// This function saves state between invocations, so it can continue in case of error (like for example by becoming rate limited)
 pub async fn download_all_entries(
     config: &Config,
     state: &mut ScraperState,
@@ -23,9 +104,10 @@ pub async fn download_all_entries(
 ) -> anyhow::Result<()> {
     {
         let mut conn = db_pool.acquire().await?;
+        let ty_state = state.get_github_api_state(ty);
 
-        let next_url_opt = state.github.api.current_initialization_next_link.clone();
-        let mut paginated_iter = if state.github.api.in_initialization {
+        let next_url_opt = ty_state.current_initialization_next_link.clone();
+        let mut paginated_iter = if ty_state.in_initialization {
             let next_url = next_url_opt
                 .as_ref()
                 .expect("GitHub API state is in initialization, however next_link value is None");
@@ -49,6 +131,7 @@ pub async fn download_all_entries(
                 config,
                 start_time,
                 start_link.clone(),
+                ty,
             );
 
             PaginatedApiDataIter::new(client, &start_link, token, &[("type", ty.api_str())])?
@@ -106,6 +189,7 @@ pub async fn download_all_entries(
             state.save_download_github_api_initialization_in_progress(
                 config,
                 paginated_iter.get_next_url().to_string(),
+                ty,
             );
         }
     }
@@ -155,7 +239,7 @@ pub async fn download_all_entries(
         log::info!("Committing final transaction");
         tx_conn.commit().await?;
 
-        state.save_download_github_api_initialization_finished(config);
+        state.save_download_github_api_initialization_finished(config, ty);
     }
 
     Ok(())
@@ -173,7 +257,7 @@ pub async fn api_data_after_update_date_single_csv_file(
     client: &reqwest::Client,
     token: &str,
     csv_file_path: &Path,
-    date: chrono::NaiveDate,
+    date: DateTime<Utc>,
     ty: GithubType,
 ) -> Result<usize, GithubApiDownloadError> {
     {
@@ -195,7 +279,7 @@ pub async fn api_data_after_update_date_single_csv_file(
         &config.github.api.url,
         token,
         &[
-            ("published", &date.format(">=%Y-%m-%d").to_string()),
+            ("modified", &date.format(">=%Y-%m-%d").to_string()),
             ("type", ty.api_str()),
         ],
     )?;

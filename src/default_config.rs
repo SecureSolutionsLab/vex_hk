@@ -10,7 +10,8 @@ pub const TEMP_TABLE_NAME: &str = "vex_tmp";
 pub const ENABLE_OSV: bool = true;
 pub const ENABLE_GITHUB_OSV: bool = true;
 pub const USE_API_FOR_GITHUB_OSV: bool = true;
-pub const ENABLE_GITHUB_API: bool = true;
+pub const ENABLE_GITHUB_API_REVIEWED: bool = true;
+pub const ENABLE_GITHUB_API_UNREVIEWED: bool = true;
 
 pub mod osv {
     pub const OSV_TABLE_NAME: &str = "osv";

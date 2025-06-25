@@ -115,6 +115,13 @@ impl GithubType {
         }
     }
 
+    pub const fn tmp_table_name(self) -> &'static str {
+        match self {
+            Self::Reviewed => TMP_REVIEWED_TABLE_NAME,
+            Self::Unreviewed => TMP_UNREVIEWED_TABLE_NAME,
+        }
+    }
+
     pub fn osv_table_name(self, config: &Config) -> &str {
         match self {
             Self::Reviewed => &config.github.osv.reviewed_table_name,

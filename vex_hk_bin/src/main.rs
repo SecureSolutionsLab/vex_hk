@@ -26,6 +26,11 @@ struct Cli {
     github_osv_sync_manual: bool,
 
     #[arg(long)]
+    github_api_reviewed_sync_manual: bool,
+    #[arg(long)]
+    github_api_unreviewed_sync_manual: bool,
+
+    #[arg(long)]
     github_api_reviewed_download_manual: bool,
     #[arg(long)]
     github_api_unreviewed_download_manual: bool,
@@ -135,6 +140,29 @@ async fn main() -> anyhow::Result<()> {
         log::info!("Starting GitHub OSV manual sync");
         return vex_hk::scrape_mod::github::repository::sync(
             &config, &client, &db_pool, &pg_bars, &mut state,
+        )
+        .await;
+    }
+
+    if args.github_api_reviewed_sync_manual {
+        log::info!("Starting GitHub API manual sync (reviewed)");
+        return vex_hk::scrape_mod::github::rest_api::sync(
+            &config,
+            &mut state,
+            &db_pool,
+            &client,
+            GithubType::Reviewed,
+        )
+        .await;
+    }
+    if args.github_api_reviewed_sync_manual {
+        log::info!("Starting GitHub API manual sync (unreviewed)");
+        return vex_hk::scrape_mod::github::rest_api::sync(
+            &config,
+            &mut state,
+            &db_pool,
+            &client,
+            GithubType::Unreviewed,
         )
         .await;
     }
