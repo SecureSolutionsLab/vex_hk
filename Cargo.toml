@@ -31,8 +31,9 @@ const_format = "0.2.34"
 anyhow = "1.0.98"
 
 [features]
-"default" = ["osv"]
+"default" = ["osv", "github"]
 "alienvault" = []
 "exploitdb" = []
 "nvd" = []
 "osv" = []
+"github" = []

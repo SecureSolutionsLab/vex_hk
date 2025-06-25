@@ -6,13 +6,17 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{config::Config, scrape_mod::github::GithubType};
+use crate::config::Config;
+
+#[cfg(feature = "github")]
+use crate::scrape_mod::github::GithubType;
 
 const SELF_TEMP_FILE_NAME: &str = "config_status.json";
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct ScraperState {
     pub osv: ScraperStateOsv,
+    #[cfg(feature = "github")]
     pub github: ScraperStateGithub,
 }
 
@@ -48,6 +52,7 @@ impl ScraperState {
         self.save(config);
     }
 
+    #[cfg(feature = "github")]
     pub fn save_download_github_osv_full(
         &mut self,
         config: &Config,
@@ -58,12 +63,14 @@ impl ScraperState {
         self.save(config);
     }
 
+    #[cfg(feature = "github")]
     pub fn save_update_github_osv(&mut self, config: &Config, start_time: DateTime<Utc>) {
         assert!(self.github.osv.initialized);
         self.github.osv.last_update_timestamp = Some(start_time);
         self.save(config);
     }
 
+    #[cfg(feature = "github")]
     pub fn get_github_api_state(&mut self, ty: GithubType) -> &mut ScraperStateGithubApi {
         match ty {
             GithubType::Reviewed => &mut self.github.api_reviewed,
@@ -71,6 +78,7 @@ impl ScraperState {
         }
     }
 
+    #[cfg(feature = "github")]
     pub fn save_download_github_api_initialization_start(
         &mut self,
         config: &Config,
@@ -85,6 +93,7 @@ impl ScraperState {
         self.save(config);
     }
 
+    #[cfg(feature = "github")]
     pub fn save_download_github_api_initialization_in_progress(
         &mut self,
         config: &Config,
@@ -97,6 +106,7 @@ impl ScraperState {
         self.save(config);
     }
 
+    #[cfg(feature = "github")]
     pub fn save_download_github_api_initialization_finished(
         &mut self,
         config: &Config,
@@ -114,6 +124,7 @@ impl ScraperState {
         self.save(config);
     }
 
+    #[cfg(feature = "github")]
     pub fn save_update_github_api(
         &mut self,
         config: &Config,
@@ -134,6 +145,7 @@ pub struct ScraperStateOsv {
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
 
+#[cfg(feature = "github")]
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct ScraperStateGithub {
     pub osv: ScraperStateGithubOsv,
@@ -141,12 +153,14 @@ pub struct ScraperStateGithub {
     pub api_unreviewed: ScraperStateGithubApi,
 }
 
+#[cfg(feature = "github")]
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ScraperStateGithubOsv {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
 
+#[cfg(feature = "github")]
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ScraperStateGithubApi {
     pub initialized: bool,

@@ -6,7 +6,9 @@ use crate::default_config as defaults;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
+    #[cfg(feature = "osv")]
     pub osv: ConfigOsv,
+    #[cfg(feature = "github")]
     pub github: ConfigGithub,
     pub tokens: Tokens,
     /// path for storing temporary items
@@ -16,7 +18,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "osv")]
             osv: ConfigOsv::default(),
+            #[cfg(feature = "github")]
             github: ConfigGithub::default(),
             tokens: Tokens::default(),
             temp_dir_path: PathBuf::from(defaults::TEMP_DIR_LOCATION),
@@ -25,6 +29,7 @@ impl Default for Config {
     }
 }
 
+#[cfg(feature = "osv")]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigOsv {
     pub table_name: String,
@@ -34,6 +39,7 @@ pub struct ConfigOsv {
     pub enable_update: bool,
 }
 
+#[cfg(feature = "osv")]
 impl Default for ConfigOsv {
     fn default() -> Self {
         Self {
@@ -45,12 +51,14 @@ impl Default for ConfigOsv {
     }
 }
 
+#[cfg(feature = "github")]
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct ConfigGithub {
     pub osv: ConfigGithubOsv,
     pub api: ConfigGithubApi,
 }
 
+#[cfg(feature = "github")]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigGithubOsv {
     pub url: String,
@@ -68,6 +76,7 @@ pub struct ConfigGithubOsv {
     pub files_url: String,
 }
 
+#[cfg(feature = "github")]
 impl Default for ConfigGithubOsv {
     fn default() -> Self {
         Self {
@@ -84,6 +93,7 @@ impl Default for ConfigGithubOsv {
     }
 }
 
+#[cfg(feature = "github")]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigGithubApi {
     pub url: String,
@@ -97,6 +107,7 @@ pub struct ConfigGithubApi {
     pub enable_update_unreviewed: bool,
 }
 
+#[cfg(feature = "github")]
 impl Default for ConfigGithubApi {
     fn default() -> Self {
         Self {
