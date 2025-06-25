@@ -15,9 +15,7 @@ scraper = { version = "0.23.1" }
 log = "0.4.26"
 csv = "1.3.1"
 async-trait = "0.1.87"
-# zip bug (https://github.com/zip-rs/zip2/pull/356)
-# zip = "3.0.0"
-zip = { path = "./zip2" }
+zip = "4.0.0" # https://github.com/zip-rs/zip2/pull/356
 quick-xml = "0.37.2"
 thiserror = "2.0.12"
 env_logger = "0.11.6"
