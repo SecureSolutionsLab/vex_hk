@@ -16,3 +16,6 @@ echo
 
 echo "Compiling \"osv\""
 RUSTFLAGS=-Awarnings cargo check --lib --no-default-features --features "osv"
+
+echo "Compiling \"github\""
+RUSTFLAGS=-Awarnings cargo check --lib --no-default-features --features "github"
