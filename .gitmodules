@@ -1,4 +1,0 @@
-[submodule "zip2"]
-	path = zip2
-	url = git@github.com:zzstar17/zip2.git
-	branch = issue-251

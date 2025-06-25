@@ -13,6 +13,7 @@ pub const USE_API_FOR_GITHUB_OSV: bool = true;
 pub const ENABLE_GITHUB_API_REVIEWED: bool = true;
 pub const ENABLE_GITHUB_API_UNREVIEWED: bool = true;
 
+#[cfg(feature = "osv")]
 pub mod osv {
     pub const OSV_TABLE_NAME: &str = "osv";
 
@@ -20,6 +21,7 @@ pub mod osv {
     pub const FULL_DATA_URL: &str = "https://storage.googleapis.com/osv-vulnerabilities/all.zip";
 }
 
+#[cfg(feature = "github")]
 pub mod github {
     pub mod repository {
         pub const URL: &str =

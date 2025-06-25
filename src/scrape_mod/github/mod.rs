@@ -39,8 +39,6 @@ const TMP_UNREVIEWED_TABLE_NAME: &str = "vex_hk_github_unreviewed_tmp";
 const GITHUB_ID_CHARACTERS: usize = 19;
 const GITHUB_ID_SQL_TYPE: &str = formatcp!("CHARACTER({})", GITHUB_ID_CHARACTERS);
 
-const API_REQUESTS_LIMIT: usize = 5000;
-
 pub type OsvGithubExtended = Osv<GitHubDatabaseSpecific>;
 
 #[derive(Debug, Serialize, Deserialize, Default)]

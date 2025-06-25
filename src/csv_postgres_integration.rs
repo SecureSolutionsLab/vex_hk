@@ -89,6 +89,7 @@ impl GeneralizedCsvRecord {
         }
     }
 
+    #[cfg(feature = "github")]
     pub fn from_github_api_response(
         data: crate::scrape_mod::github::api_response::GitHubAdvisoryAPIResponse,
     ) -> Self {

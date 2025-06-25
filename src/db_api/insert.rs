@@ -4,6 +4,9 @@ use serde_json::json;
 use sqlx::{query, Error, Executor, PgConnection, PgPool};
 use std::time::Instant;
 
+#[cfg(feature = "nvd")]
+use crate::scrape_mod::structs::{CPEMatch, FilteredCVE};
+
 /// Inserts data into a database table sequentially.
 ///
 /// This function performs sequential database insertions for a list of serialized
