@@ -1,3 +1,5 @@
+#![feature(string_remove_matches)]
+
 use std::{
     io::{BufRead, BufReader},
     path::Path,
@@ -34,16 +36,33 @@ use crate::scrape_mod::exploitdb_scraper::exploitdb_scrape;
 #[cfg(feature = "nvd")]
 use crate::scrape_mod::nvd_scraper::{consts_checker, query_nvd_cvecount, scrape_nvd};
 
+pub use db_api::{get_db, get_db_connection};
+
 // Verifies every hour
 #[cfg(feature = "nvd")]
 const TIME_INTERVAL: u64 = 3600;
 #[cfg(feature = "nvd")]
 const EMPTY: i64 = 0;
 
+const GITHUB_TOKEN_LOCATION: &str = "./tokens/github";
+
+pub mod config;
+pub mod csv_postgres_integration;
 mod db_api;
-mod scrape_mod;
-mod utils;
+pub mod default_config;
 mod download;
+pub mod scrape_mod;
+pub mod state;
+mod utils;
+
+pub use db_api::consts;
+
+// mod github;
+
+mod osv_schema;
+// mod scaf_schema;
+
+// pub use github::update_github;
 
 #[cfg(feature = "nvd")]
 pub async fn _exploit_vulnerability_hunter() {
@@ -155,36 +174,33 @@ pub async fn _exploitdb_scraper() {
     };
 }
 
-#[cfg(feature = "osv")]
-pub async fn osv_scraper(pg_bars: indicatif::MultiProgress) {
-    // todo: unhandled errors
+// #[cfg(feature = "osv")]
+// pub async fn osv_scraper(pg_bars: &indicatif::MultiProgress) {
+//     // todo: unhandled errors
 
-    use sqlx::Executor;
+//     use sqlx::Executor;
 
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
+//     let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
 
-    let client = reqwest::Client::new();
+//     let client = reqwest::Client::new();
 
-    scrape_mod::osv_scraper::scrape_osv_full(client, db_conn, &pg_bars)
-        .await
-        .unwrap();
-}
+//     scrape_mod::osv_scraper::scrape_osv_full(&client, db_conn, pg_bars, true)
+//         .await
+//         .unwrap();
+// }
 
-pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
-    use sqlx::Executor;
+// todo: this kind of sucks
+// pub async fn github_advisories_scraper(pg_bars: indicatif::MultiProgress) {
+//     use sqlx::Executor;
 
-    let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
-    // db_conn
-    //     .execute(sqlx::query("DELETE FROM osv"))
-    //     .await
-    //     .unwrap();
+//     let db_conn = db_api::db_connection::get_db_connection().await.unwrap();
 
-    let client = reqwest::Client::new();
+//     let client = reqwest::Client::new();
 
-    scrape_mod::github_scraper::download_full(client, db_conn, &pg_bars)
-        .await
-        .unwrap();
-}
+//     scrape_mod::github::repository::download_osv_full(client, db_conn, &pg_bars)
+//         .await
+//         .unwrap();
+// }
 
 #[cfg(feature = "alienvault")]
 pub async fn _alienvault_otx_scraper() {

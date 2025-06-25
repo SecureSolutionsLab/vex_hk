@@ -2,7 +2,6 @@ use async_trait::async_trait;
 #[cfg(feature = "osv")]
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct NVDCve {
@@ -311,52 +310,9 @@ pub struct DatabaseSpecific {
     pub source: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct OSV {
-    pub schema_version: String,
-    pub id: String,
-    pub modified: String,
-    pub published: String,
-    #[serde(default)]
-    pub withdrawn: String,
-    #[serde(default)]
-    pub aliases: Vec<String>,
-    #[serde(default)]
-    pub related: Vec<String>,
-    #[serde(default)]
-    pub summary: String,
-    #[serde(default)]
-    pub details: String,
-    #[serde(default)]
-    pub severity: Vec<Severity>,
-    #[serde(default)]
-    pub affected: Vec<Affected>,
-    #[serde(default)]
-    pub references: Vec<Reference>,
-    #[serde(default)]
-    pub credits: Vec<Credit>,
-    #[serde(default)]
-    pub database_specific: Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Severity {
-    pub r#type: String,
-    pub score: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Credit {
-    pub name: String,
-    #[serde(default)]
-    pub contact: Vec<String>,
-    #[serde(default)]
-    pub r#type: String,
-}
-
 #[cfg(feature = "osv")]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Sitemap {
-    pub(crate) loc: String,
-    pub(crate) lastmod: DateTime<FixedOffset>,
+    pub loc: String,
+    pub lastmod: DateTime<FixedOffset>,
 }

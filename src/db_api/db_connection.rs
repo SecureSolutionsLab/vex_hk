@@ -25,7 +25,7 @@ use std::env;
 pub fn get_db() -> String {
     dotenv().ok();
     env::var("DATABASE_URL").unwrap_or_else(|error| {
-        error!("error in retrieving db {}", error);
+        error!("error in retrieving db {error}");
         panic!("db retrieval")
     })
 }

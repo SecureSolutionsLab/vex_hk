@@ -40,18 +40,18 @@ pub async fn count_table_entries(table_name: &str) -> i64 {
     let db_conn = match get_db_connection().await {
         Ok(conn) => conn,
         Err(e) => {
-            error!("Error in database connection: {}", e);
+            error!("Error in database connection: {e}");
             return 0;
         }
     };
 
     // Build the SQL query dynamically
-    let query_str = format!("SELECT count(*) AS count FROM {};", table_name);
+    let query_str = format!("SELECT count(*) AS count FROM {table_name};");
 
     let query_db = match query(&query_str).fetch_all(&db_conn).await {
         Ok(query_result) => query_result,
         Err(e) => {
-            error!("Error in querying database for table {}: {}", table_name, e);
+            error!("Error in querying database for table {table_name}: {e}");
             return 0;
         }
     };
@@ -67,16 +67,13 @@ pub async fn count_table_entries(table_name: &str) -> i64 {
     }
 
     // Extract and return the count from the query result
-    match query_db.get(0).unwrap().try_get::<i64, _>("count") {
+    match query_db.first().unwrap().try_get::<i64, _>("count") {
         Ok(count) => {
-            info!(
-                "Successfully counted {} entries in table {}",
-                count, table_name
-            );
+            info!("Successfully counted {count} entries in table {table_name}");
             count
         }
         Err(e) => {
-            error!("Failed to extract count from query result: {}", e);
+            error!("Failed to extract count from query result: {e}");
             0
         }
     }
@@ -120,7 +117,7 @@ pub async fn _verify_cve_db(id: &str) -> bool {
     let db_conn = match get_db_connection().await {
         Ok(conn) => conn,
         Err(e) => {
-            error!("error in connection {}", e);
+            error!("error in connection {e}");
             return false;
         }
     };
@@ -129,11 +126,11 @@ pub async fn _verify_cve_db(id: &str) -> bool {
         .fetch_all(&db_conn)
         .await
         .unwrap();
-    let count: i64 = query_db_size.get(0).unwrap().get("count");
+    let count: i64 = query_db_size.first().unwrap().get("count");
     if count == 1 {
         return true;
     } else if count > 1 {
-        println!("too many entries for {}", id);
+        println!("too many entries for {id}");
         return true;
     }
     false
@@ -274,9 +271,7 @@ SELECT
     END AS status
 FROM input
 LEFT JOIN {table} ON {table}.{column}->>'id' = input.id;
-        "#,
-        table = table,
-        column = column
+        "#
     );
 
     let statuses = sqlx::query_as::<_, T>(&query)
@@ -284,6 +279,6 @@ LEFT JOIN {table} ON {table}.{column}->>'id' = input.id;
         .fetch_all(db_conn)
         .await?;
 
-    info!("Query returned statuses: {:?}", statuses);
+    info!("Query returned statuses: {statuses:?}");
     Ok(statuses)
 }
