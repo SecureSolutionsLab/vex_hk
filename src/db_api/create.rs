@@ -8,7 +8,7 @@ pub async fn execute_create_tmp_table_drop_on_commit(
     new_table_name: &str,
     copy_settings_from_table_name: &str,
 ) -> Result<(), sqlx::Error> {
-    log::debug!("Creating temporary table");
+    log::debug!("Creating temporary table with name {new_table_name}, with setting copied from {copy_settings_from_table_name}");
     let query_str = format!(
         "
 CREATE TEMP TABLE \"{new_table_name}\" 

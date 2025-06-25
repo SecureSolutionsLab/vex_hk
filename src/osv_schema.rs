@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 // https://github.com/ossf/osv-schema/blob/main/validation/schema.json
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OSV<T> {
+pub struct Osv<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub schema_version: Option<String>,
@@ -44,7 +44,7 @@ pub struct OSV<T> {
     pub database_specific: Option<T>,
 }
 
-pub type OSVGeneralized = OSV<serde_json::Value>;
+pub type OSVGeneralized = Osv<serde_json::Value>;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -110,10 +110,11 @@ pub struct Range {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
 pub enum RangeType {
-    GIT,
-    SEMVER,
-    ECOSYSTEM,
+    Git,
+    Semver,
+    Ecosystem,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

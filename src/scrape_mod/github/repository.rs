@@ -14,13 +14,14 @@ use crate::{
     csv_postgres_integration::{self, CsvCreationError, GeneralizedCsvRecord},
     download::download_and_save_to_file_in_chunks,
     scrape_mod::github::{
-        repository_update::GithubOsvUpdateError, GithubType, TEMP_CSV_FILE_REVIEWED_NAME,
-        TEMP_CSV_FILE_UNREVIEWED_NAME, TEMP_DOWNLOAD_FILE_NAME,
+        repository_update::GithubOsvUpdateError, GithubType, TMP_CSV_FILE_REVIEWED_NAME,
+        TMP_CSV_FILE_UNREVIEWED_NAME, TMP_DOWNLOAD_FILE_NAME, TMP_REVIEWED_TABLE_NAME,
+        TMP_UNREVIEWED_TABLE_NAME,
     },
     state::ScraperState,
 };
 
-use super::{OSVGitHubExtended};
+use super::OsvGithubExtended;
 
 const FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE: usize = 42_000_000; // 42mb
 
@@ -93,7 +94,10 @@ pub async fn sync(
             return manual_download_and_save_state(config, client, db_pool, pg_bars, state).await;
         }
         state.save_update_github_osv(config, start_time);
-        log::info!("GitHub OSV table update finished successfully in {:?}.", update_inst.elapsed());
+        log::info!(
+            "GitHub OSV table update finished successfully in {:?}.",
+            update_inst.elapsed()
+        );
     } else {
         log::info!("GitHub OSV API update disabled. Performing full download.");
         return manual_download_and_save_state(config, client, db_pool, pg_bars, state).await;
@@ -121,9 +125,9 @@ pub async fn download_osv_full(
 
     log::info!("Starting a download a full copy of Github Advisory database.");
 
-    let download_path = config.temp_dir_path.join(TEMP_DOWNLOAD_FILE_NAME);
-    let csv_path_reviewed = config.temp_dir_path.join(TEMP_CSV_FILE_REVIEWED_NAME);
-    let csv_path_unreviewed = config.temp_dir_path.join(TEMP_CSV_FILE_UNREVIEWED_NAME);
+    let download_path = config.temp_dir_path.join(TMP_DOWNLOAD_FILE_NAME);
+    let csv_path_reviewed = config.temp_dir_path.join(TMP_CSV_FILE_REVIEWED_NAME);
+    let csv_path_unreviewed = config.temp_dir_path.join(TMP_CSV_FILE_UNREVIEWED_NAME);
 
     download_and_save_to_file_in_chunks(client, &config.github.osv.url, &download_path, pg_bars)
         .await?;
@@ -135,10 +139,14 @@ pub async fn download_osv_full(
     )
     .await?;
 
+    log::info!("Starting GitHub download OSV full transaction.");
+    let mut tx = db_pool.begin().await?;
+    let tx_conn = &mut *tx;
+
     if recreate_database_table {
         log::info!("Recreating database table.");
         let database_delete_start = Instant::now();
-        db_pool
+        tx_conn
             .execute(
                 QueryBuilder::<Postgres>::new(format!(
                     "DROP TABLE IF EXISTS \"{}\";\nDROP TABLE IF EXISTS \"{}\";\n{}\n{}",
@@ -152,24 +160,24 @@ pub async fn download_osv_full(
             )
             .await?;
         log::info!(
-        "Creating new Github Advisories tables for GitHub-reviewed and unreviewed advisories, with names \"{}\" and \"{}\"",
-        GithubType::Reviewed.osv_table_name(config),
-        GithubType::Unreviewed.osv_table_name(config)
-    );
+            "Creating new Github Advisories tables for GitHub-reviewed and unreviewed advisories, with names \"{}\" and \"{}\"",
+            GithubType::Reviewed.osv_table_name(config),
+            GithubType::Unreviewed.osv_table_name(config)
+        );
         log::info!(
             "Finished recreating database table. Time: {:?}",
             database_delete_start.elapsed()
         );
 
-        csv_postgres_integration::send_csv_to_database_whole(
-            db_pool,
+        csv_postgres_integration::execute_send_csv_to_database_whole(
+            tx_conn,
             &csv_path_reviewed,
             GithubType::Reviewed.osv_table_name(config),
             row_count_reviewed,
         )
         .await?;
-        csv_postgres_integration::send_csv_to_database_whole(
-            db_pool,
+        csv_postgres_integration::execute_send_csv_to_database_whole(
+            tx_conn,
             &csv_path_unreviewed,
             GithubType::Unreviewed.osv_table_name(config),
             row_count_unreviewed,
@@ -180,19 +188,24 @@ pub async fn download_osv_full(
             "Attempting an update on existing tables. Number of entries: {row_count_reviewed}, {row_count_unreviewed}"
         );
 
-        csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
-            db_pool,
+        csv_postgres_integration::execute_insert_and_replace_older_entries_in_database_from_csv(
+            tx_conn,
             &csv_path_reviewed,
             GithubType::Reviewed.osv_table_name(config),
+            TMP_REVIEWED_TABLE_NAME,
         )
         .await?;
-        csv_postgres_integration::insert_and_replace_older_entries_in_database_from_csv(
-            db_pool,
+        csv_postgres_integration::execute_insert_and_replace_older_entries_in_database_from_csv(
+            tx_conn,
             &csv_path_unreviewed,
             GithubType::Unreviewed.osv_table_name(config),
+            TMP_UNREVIEWED_TABLE_NAME,
         )
         .await?;
     }
+
+    log::info!("Committing.");
+    tx.commit().await?;
 
     log::info!("Removing temporary files");
     fs::remove_file(download_path)?;
@@ -284,7 +297,7 @@ async fn create_csv(
         let osv_record = {
             // faster than using serde_json::from_reader and BufReader
             file.read_to_string(&mut buffer)?;
-            serde_json::from_str::<OSVGitHubExtended>(&buffer)
+            serde_json::from_str::<OsvGithubExtended>(&buffer)
         };
         let osv_record = match osv_record {
             Ok(v) => v,

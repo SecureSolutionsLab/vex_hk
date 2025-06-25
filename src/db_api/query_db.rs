@@ -69,9 +69,7 @@ pub async fn count_table_entries(table_name: &str) -> i64 {
     // Extract and return the count from the query result
     match query_db.first().unwrap().try_get::<i64, _>("count") {
         Ok(count) => {
-            info!(
-                "Successfully counted {count} entries in table {table_name}"
-            );
+            info!("Successfully counted {count} entries in table {table_name}");
             count
         }
         Err(e) => {

@@ -6,8 +6,10 @@ mod update;
 pub use full::manual_download_and_save_state;
 pub use update::manual_update_and_save_state;
 
-const TEMP_DOWNLOAD_FILE_NAME: &str = "osv_all_temp.zip";
-const TEMP_CSV_FILE_NAME: &str = "osv_temp.csv";
+const TMP_DOWNLOAD_FILE_NAME: &str = "osv_all_tmp.zip";
+const TMP_CSV_FILE_NAME: &str = "osv_tmp.csv";
+
+const TMP_TABLE_NAME: &str = "vex_hk_osv_tmp";
 
 // example id: ALBA-2019:0973
 // the specification does not specify a max character limit for the value of an id

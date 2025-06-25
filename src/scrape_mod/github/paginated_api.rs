@@ -45,9 +45,7 @@ impl<'a> PaginatedApiDataIter<'a> {
             .query(&[("per_page", "100")])
             .query(query)
             .build()?;
-        log::debug!(
-            "Created PaginatedApiDataIter. Main request:\n{request:#?}"
-        );
+        log::debug!("Created PaginatedApiDataIter. Main request:\n{request:#?}");
 
         Ok(Self {
             client,
@@ -55,6 +53,10 @@ impl<'a> PaginatedApiDataIter<'a> {
             request,
             finished: false,
         })
+    }
+
+    pub fn get_next_url(&self) -> &reqwest::Url {
+        self.request.url()
     }
 
     /// Perform a request for the next page, and just return the json object

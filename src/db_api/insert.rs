@@ -1,7 +1,7 @@
 use crate::db_api::{db_connection::get_db_connection, utils::execute_query_data};
 use log::{error, info};
 use serde_json::json;
-use sqlx::{query, Error, PgPool};
+use sqlx::{query, Error, Executor, PgConnection, PgPool};
 use std::time::Instant;
 
 /// Inserts data into a database table sequentially.
@@ -46,9 +46,7 @@ pub async fn _insert_db_sequential<T: serde::Serialize>(
 ) -> Result<(), Error> {
     let instant = Instant::now();
     let db = get_db_connection().await?;
-    let sql_query = format!(
-        "INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])"
-    );
+    let sql_query = format!("INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])");
     for value in &cve {
         let json_cve = json!(value);
         match query(&sql_query).bind(&json_cve).execute(&db).await {
@@ -108,9 +106,7 @@ pub async fn insert_parallel<T: serde::Serialize>(
     column: &str,
     data: &[T],
 ) -> Result<(), Error> {
-    let sql_query = format!(
-        "INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])"
-    );
+    let sql_query = format!("INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])");
     let submit_data: Vec<_> = data.iter().map(|cve| json!(cve)).collect();
     execute_query_data(db_conn, &sql_query, &submit_data).await?;
     Ok(())
@@ -124,9 +120,7 @@ pub async fn insert_parallel_json(
     column: &str,
     data: &[serde_json::Value],
 ) -> Result<(), Error> {
-    let sql_query = format!(
-        "INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])"
-    );
+    let sql_query = format!("INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])");
     execute_query_data(db_conn, &sql_query, data).await?;
     Ok(())
 }
@@ -140,9 +134,7 @@ pub async fn insert_parallel_string_json(
     column: &str,
     data: &[&str],
 ) -> Result<(), Error> {
-    let sql_query = format!(
-        "INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])"
-    );
+    let sql_query = format!("INSERT INTO {table}({column}) SELECT UNNEST($1::jsonb[])");
     execute_query_data(db_conn, &sql_query, data).await?;
     Ok(())
 }
@@ -216,5 +208,17 @@ pub async fn insert_parallel_cve(
         &submit_configuration)
         .execute(db_conn)
         .await?;
+    Ok(())
+}
+
+pub async fn execute_insert_from_one_table_to_another(
+    conn: &mut PgConnection,
+    from_table_name: &str,
+    to_table_name: &str,
+) -> Result<(), sqlx::Error> {
+    log::debug!("Inserting all entries from table {from_table_name} to {to_table_name}");
+    let query_str = format!("INSERT INTO {to_table_name} SELECT * FROM {from_table_name};");
+    let query = sqlx::query(&query_str);
+    conn.execute(query).await?;
     Ok(())
 }

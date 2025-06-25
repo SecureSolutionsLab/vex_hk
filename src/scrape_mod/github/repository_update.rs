@@ -6,7 +6,10 @@ use serde::Deserialize;
 use crate::{
     config::Config,
     csv_postgres_integration::{self, GeneralizedCsvRecord},
-    scrape_mod::github::{paginated_api::PaginatedApiDataIter, OSVGitHubExtended},
+    scrape_mod::github::{
+        paginated_api::PaginatedApiDataIter, OsvGithubExtended, TMP_REVIEWED_TABLE_NAME,
+        TMP_UNREVIEWED_TABLE_NAME,
+    },
 };
 
 use super::{paginated_api::PaginatedApiDataIterError, GithubType};
@@ -160,9 +163,7 @@ fn get_file_type_from_filename(filename: &str) -> GithubType {
     } else if type_text == GithubType::Unreviewed.path_str() {
         GithubType::Unreviewed
     } else {
-        panic!(
-            "Found invalid type in advisories file path: Invalid type {type_text:?}"
-        );
+        panic!("Found invalid type in advisories file path: Invalid type {type_text:?}");
     }
 }
 
@@ -200,7 +201,11 @@ pub async fn update_osv(
 
     // sort commits by earliest first
     commits.sort_by(|a, b| a.try_get_date().cmp(b.try_get_date()));
-    log::info!("Received {} commits ({:?}). Processing.", commits.len(), all_start.elapsed());
+    log::info!(
+        "Received {} commits ({:?}). Processing.",
+        commits.len(),
+        all_start.elapsed()
+    );
     log::debug!("{commits:#?}");
 
     let mut to_add_files: HashSet<String> = HashSet::new();
@@ -284,7 +289,7 @@ pub async fn update_osv(
                                 let file_contents =
                                     parse_new_file_contents_from_patch_info(file_patch);
                                 let parsed_osv =
-                                    serde_json::from_str::<OSVGitHubExtended>(&file_contents).map_err(|err|
+                                    serde_json::from_str::<OsvGithubExtended>(&file_contents).map_err(|err|
                                         anyhow::anyhow!("Failed to parse new file contents from patch information: {}", err)
                                     )?;
                                 let id = &parsed_osv.id;
@@ -319,7 +324,7 @@ pub async fn update_osv(
                                 return Err(GithubOsvUpdateError::UnhandledCommitFileStatus(
                                     file.status,
                                     filename.to_owned(),
-                                    commit.url
+                                    commit.url,
                                 ));
                             }
                         }
@@ -383,7 +388,10 @@ pub async fn update_osv(
         updated_reviewed_writer.flush()?;
         updated_unreviewed_writer.flush()?;
     }
-    log::info!("All downloads finished. Time: {:?}", download_updated_files_start.elapsed());
+    log::info!(
+        "All downloads finished. Time: {:?}",
+        download_updated_files_start.elapsed()
+    );
 
     let mut to_delete_ids_reviewed = Vec::new();
     let mut to_delete_ids_unreviewed = Vec::new();
@@ -401,28 +409,47 @@ pub async fn update_osv(
         }
     }
 
-    log::info!("Updating reviewed entries in database.");
-    csv_postgres_integration::add_new_update_and_delete(
-        db_pool,
-        new_files_reviewed,
-        updated_files_reviewed,
-        &to_delete_ids_reviewed,
-        &config.osv.table_name,
-    )
-    .await
-    .map_err(|err| anyhow::anyhow!("Failed to update database (reviewed):\n{}", err))?;
-    log::info!("Updating unreviewed entries in database.");
-    csv_postgres_integration::add_new_update_and_delete(
-        db_pool,
-        new_files_unreviewed,
-        updated_files_unreviewed,
-        &to_delete_ids_unreviewed,
-        &config.osv.table_name,
-    )
-    .await
-    .map_err(|err| anyhow::anyhow!("Failed to update database (unreviewed):\n{}", err))?;
+    {
+        log::info!("Starting GitHub update OSV transaction.");
+        let mut tx = db_pool
+            .begin()
+            .await
+            .map_err(|err| anyhow::anyhow!("Failed to begin database transaction:\n{}", err))?;
+        let tx_conn = &mut *tx;
 
-    log::info!("Finished updating database. Total time: {:?}", all_start.elapsed());
+        log::info!("Updating reviewed entries in database.");
+        csv_postgres_integration::execute_add_new_update_and_delete(
+            tx_conn,
+            new_files_reviewed,
+            updated_files_reviewed,
+            &to_delete_ids_reviewed,
+            &config.github.osv.reviewed_table_name,
+            TMP_REVIEWED_TABLE_NAME,
+        )
+        .await
+        .map_err(|err| anyhow::anyhow!("Failed to update database (reviewed):\n{}", err))?;
+        log::info!("Updating unreviewed entries in database.");
+        csv_postgres_integration::execute_add_new_update_and_delete(
+            tx_conn,
+            new_files_unreviewed,
+            updated_files_unreviewed,
+            &to_delete_ids_unreviewed,
+            &config.github.osv.unreviewed_table_name,
+            TMP_UNREVIEWED_TABLE_NAME,
+        )
+        .await
+        .map_err(|err| anyhow::anyhow!("Failed to update database (unreviewed):\n{}", err))?;
+
+        log::info!("Committing.");
+        tx.commit()
+            .await
+            .map_err(|err| anyhow::anyhow!("Failed to commit changes to database:\n{}", err))?;
+    }
+
+    log::info!(
+        "Finished updating database. Total time: {:?}",
+        all_start.elapsed()
+    );
     Ok(())
 }
 
@@ -489,7 +516,7 @@ pub async fn get_single_osv_file_data(
     client: &reqwest::Client,
     token: &str,
     url: &str,
-) -> Result<OSVGitHubExtended, SingleFileError> {
+) -> Result<OsvGithubExtended, SingleFileError> {
     let request = client
         .get(url)
         .bearer_auth(token)
@@ -507,6 +534,6 @@ pub async fn get_single_osv_file_data(
         return Err(SingleFileError::NotFound(response.url().clone()));
     }
 
-    let data = response.json::<OSVGitHubExtended>().await?;
+    let data = response.json::<OsvGithubExtended>().await?;
     Ok(data)
 }

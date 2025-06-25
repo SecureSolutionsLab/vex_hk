@@ -7,7 +7,7 @@ use std::{
 use clap::Parser;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
-use vex_hk::{config::Config, state::ScraperState};
+use vex_hk::{config::Config, scrape_mod::github::GithubType, state::ScraperState};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -17,13 +17,23 @@ struct Cli {
     #[arg(short, long)]
     regenerate_config: bool,
 
-    #[arg(short, long)]
-    github_sync_manual: bool,
-
     #[arg(long)]
     osv_download_manual: bool,
     #[arg(long)]
     osv_update_manual: bool,
+
+    #[arg(short, long)]
+    github_osv_sync_manual: bool,
+
+    #[arg(long)]
+    github_api_reviewed_sync_manual: bool,
+    #[arg(long)]
+    github_api_unreviewed_sync_manual: bool,
+
+    #[arg(long)]
+    github_api_reviewed_download_manual: bool,
+    #[arg(long)]
+    github_api_unreviewed_download_manual: bool,
 
     #[arg(long)]
     a: bool,
@@ -111,14 +121,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    if args.github_sync_manual {
-        log::info!("Starting GitHub OSV manual sync");
-        return vex_hk::scrape_mod::github::repository::sync(
-            &config, &client, &db_pool, &pg_bars, &mut state,
-        )
-        .await;
-    }
-
     if args.osv_download_manual {
         log::info!("Downloading osv and recreating the table");
         return vex_hk::scrape_mod::osv::manual_download_and_save_state(
@@ -130,6 +132,62 @@ async fn main() -> anyhow::Result<()> {
         log::info!("Attempting to manually update OSV");
         return vex_hk::scrape_mod::osv::manual_update_and_save_state(
             &config, &client, &db_pool, &pg_bars, &mut state,
+        )
+        .await;
+    }
+
+    if args.github_osv_sync_manual {
+        log::info!("Starting GitHub OSV manual sync");
+        return vex_hk::scrape_mod::github::repository::sync(
+            &config, &client, &db_pool, &pg_bars, &mut state,
+        )
+        .await;
+    }
+
+    if args.github_api_reviewed_sync_manual {
+        log::info!("Starting GitHub API manual sync (reviewed)");
+        return vex_hk::scrape_mod::github::rest_api::sync(
+            &config,
+            &mut state,
+            &db_pool,
+            &client,
+            GithubType::Reviewed,
+        )
+        .await;
+    }
+    if args.github_api_reviewed_sync_manual {
+        log::info!("Starting GitHub API manual sync (unreviewed)");
+        return vex_hk::scrape_mod::github::rest_api::sync(
+            &config,
+            &mut state,
+            &db_pool,
+            &client,
+            GithubType::Unreviewed,
+        )
+        .await;
+    }
+
+    if args.github_api_reviewed_download_manual {
+        log::info!("Starting GitHub API manual download (reviewed)");
+        return vex_hk::scrape_mod::github::rest_api::download_all_entries(
+            &config,
+            &mut state,
+            &db_pool,
+            &client,
+            config.tokens.github.as_ref().unwrap(),
+            GithubType::Reviewed,
+        )
+        .await;
+    }
+    if args.github_api_unreviewed_download_manual {
+        log::info!("Starting GitHub API manual download (reviewed)");
+        return vex_hk::scrape_mod::github::rest_api::download_all_entries(
+            &config,
+            &mut state,
+            &db_pool,
+            &client,
+            config.tokens.github.as_ref().unwrap(),
+            GithubType::Unreviewed,
         )
         .await;
     }

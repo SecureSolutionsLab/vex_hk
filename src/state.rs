@@ -6,7 +6,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::config::Config;
+use crate::{config::Config, scrape_mod::github::GithubType};
 
 const SELF_TEMP_FILE_NAME: &str = "config_status.json";
 
@@ -63,37 +63,99 @@ impl ScraperState {
         self.github.osv.last_update_timestamp = Some(start_time);
         self.save(config);
     }
+
+    pub fn get_github_api_state(&mut self, ty: GithubType) -> &mut ScraperStateGithubApi {
+        match ty {
+            GithubType::Reviewed => &mut self.github.api_reviewed,
+            GithubType::Unreviewed => &mut self.github.api_unreviewed,
+        }
+    }
+
+    pub fn save_download_github_api_initialization_start(
+        &mut self,
+        config: &Config,
+        start_time: DateTime<Utc>,
+        starting_initialization_link: String,
+        ty: GithubType,
+    ) {
+        let api_state = self.get_github_api_state(ty);
+        api_state.in_initialization = true;
+        api_state.initialization_started_time = Some(start_time);
+        api_state.current_initialization_next_link = Some(starting_initialization_link);
+        self.save(config);
+    }
+
+    pub fn save_download_github_api_initialization_in_progress(
+        &mut self,
+        config: &Config,
+        current_initialization_next_link: String,
+        ty: GithubType,
+    ) {
+        let api_state = self.get_github_api_state(ty);
+        api_state.in_initialization = true;
+        api_state.current_initialization_next_link = Some(current_initialization_next_link);
+        self.save(config);
+    }
+
+    pub fn save_download_github_api_initialization_finished(
+        &mut self,
+        config: &Config,
+        ty: GithubType,
+    ) {
+        let api_state = self.get_github_api_state(ty);
+
+        api_state.initialized = true;
+        api_state.last_update_timestamp = api_state.initialization_started_time;
+
+        api_state.in_initialization = false;
+        api_state.current_initialization_next_link = None;
+        api_state.initialization_started_time = None;
+
+        self.save(config);
+    }
+
+    pub fn save_update_github_api(
+        &mut self,
+        config: &Config,
+        new_update_timestamp: DateTime<Utc>,
+        ty: GithubType,
+    ) {
+        let api_state = self.get_github_api_state(ty);
+        assert!(api_state.initialized);
+
+        api_state.last_update_timestamp = Some(new_update_timestamp);
+        self.save(config);
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ScraperStateOsv {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
 
-
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct ScraperStateGithub {
     pub osv: ScraperStateGithubOsv,
-    pub api: ScraperStateGithubApi,
+    pub api_reviewed: ScraperStateGithubApi,
+    pub api_unreviewed: ScraperStateGithubApi,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ScraperStateGithubOsv {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
 }
 
-
-#[derive(Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ScraperStateGithubApi {
     pub initialized: bool,
     pub last_update_timestamp: Option<DateTime<Utc>>,
-}
 
+    pub in_initialization: bool,
+    pub current_initialization_next_link: Option<String>,
+    pub initialization_started_time: Option<DateTime<Utc>>,
+}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Tokens {
