@@ -1,11 +1,13 @@
-pub mod alienvault_scraper;
 pub mod consts;
-pub mod exploitdb_scraper;
-pub mod nvd_scraper;
-pub mod osv_scraper;
 pub mod structs;
 
-
-fn _private_hello() {
-    println!("hello world")
-}
+#[cfg(feature = "alienvault")]
+pub mod alienvault_scraper;
+#[cfg(feature = "exploitdb")]
+pub mod exploitdb_scraper;
+#[cfg(feature = "github")]
+pub mod github;
+#[cfg(feature = "nvd")]
+pub mod nvd_scraper;
+#[cfg(feature = "osv")]
+pub mod osv;

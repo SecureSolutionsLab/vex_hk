@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+
 use crate::scrape_mod::structs::HasId;
 
 #[derive(Debug, FromRow)]

@@ -4,19 +4,34 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-reqwest = { version = "0.12.12", features = ["json"] }
+reqwest = { version = "0.12.12", features = ["json", "stream"] }
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = { version = "1.0.140" }
 tokio = { version = "1.43.0", features = ["rt", "rt-multi-thread", "macros"] }
-chrono = "0.4.40"
+chrono = { version = "0.4.40", features = ["serde", "alloc"] }
 sqlx = { version = "0.8.3", features = ["postgres", "macros", "runtime-tokio"] }
 dotenv = { version = "0.15.0"}
 scraper = { version = "0.23.1" }
 log = "0.4.26"
 csv = "1.3.1"
 async-trait = "0.1.87"
-zip = "2.2.2"
+zip = "4.0.0" # https://github.com/zip-rs/zip2/pull/356
 quick-xml = "0.37.2"
 thiserror = "2.0.12"
 env_logger = "0.11.6"
+human_bytes = "0.4" # human readable bytes
+bytes = "1.10.1"
+futures-util = "0.3.31"
+indicatif = { version = "0.17.11", features = ["futures"] }
+indicatif-log-bridge = "0.2.3"
+regex = "1.11.1"
+const_format = "0.2.34"
+anyhow = "1.0.98"
 
+[features]
+"default" = ["osv", "github"]
+"alienvault" = []
+"exploitdb" = []
+"nvd" = []
+"osv" = []
+"github" = []

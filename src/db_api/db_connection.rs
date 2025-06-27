@@ -1,7 +1,6 @@
 use dotenv::dotenv;
 use log::error;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{Pool, Postgres};
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::env;
 
 /// Retrieves the database connection string from environment variables.
@@ -26,7 +25,7 @@ use std::env;
 pub fn get_db() -> String {
     dotenv().ok();
     env::var("DATABASE_URL").unwrap_or_else(|error| {
-        error!("error in retrieving db {}", error);
+        error!("error in retrieving db {error}");
         panic!("db retrieval")
     })
 }
@@ -64,5 +63,5 @@ pub fn get_db() -> String {
 /// - `sqlx` for managing database connections and connection pools.
 /// - [`get_db`] for retrieving the database connection string.
 pub async fn get_db_connection() -> Result<Pool<Postgres>, sqlx::Error> {
-    PgPoolOptions::new().connect(&*get_db()).await
+    PgPoolOptions::new().connect(&get_db()).await
 }

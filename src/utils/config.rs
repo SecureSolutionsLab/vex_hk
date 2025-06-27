@@ -1,8 +1,10 @@
-use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::{Read, Seek, Write};
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fs::OpenOptions,
+    io::{Read, Seek, Write},
+    path::Path,
+};
 
 /// Location of the resources file
 const FILE_PATH: &str = "src/resources/config.conf";
@@ -62,9 +64,8 @@ pub fn read_key(key: String) -> Option<String> {
         },
         _ => serde_json::from_str(&contents).expect("Failed to parse JSON"),
     };
-    let value = config.map.get(&key);
-    if value.is_some() {
-        return Some(value.unwrap().to_owned());
+    if let Some(value) = config.map.get(&key) {
+        return Some(value.to_owned());
     }
     println!("value does not exist");
     None
@@ -98,7 +99,8 @@ pub fn read_key(key: String) -> Option<String> {
 /// ```
 pub fn store_key(key: String, value: String) {
     // Read the existing config file or create a new one if it doesn't exist
-    println!("store key: {}", FILE_PATH);
+    println!("store key: {FILE_PATH}");
+    // todo: check clippy (clippy::suspicious_open_options)
     let mut file = OpenOptions::new()
         .write(true)
         .read(true)
@@ -130,7 +132,6 @@ pub fn store_key(key: String, value: String) {
         .expect("Failed to write file");
 }
 
-
 /// Checks if a file exists at the specified path.
 ///
 /// This utility function checks for the existence of a file or directory at
@@ -154,4 +155,3 @@ pub fn store_key(key: String, value: String) {
 pub fn _file_exists(file_path: &str) -> bool {
     Path::new(file_path).exists()
 }
-
