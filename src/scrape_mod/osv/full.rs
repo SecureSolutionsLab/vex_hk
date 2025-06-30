@@ -113,6 +113,9 @@ pub async fn scrape_osv_full(
         .await?;
     }
 
+    log::info!("Committing transaction.");
+    tx.commit().await?;
+
     log::info!("Removing temporary files.");
     fs::remove_file(&csv_path)?;
     fs::remove_file(&download_path)?;
