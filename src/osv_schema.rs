@@ -49,8 +49,11 @@ pub type OSVGeneralized = Osv<serde_json::Value>;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Severity {
-    pub r#type: SeverityType, // required
-    pub score: String,        // required
+    // warn: This field is actually required in the schema, but a lot of OSV files do not have it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub r#type: Option<SeverityType>, // required
+    pub score: String, // required
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,4 +1,6 @@
 /target
+/temp
 
 /config.json
 /status.json
+/config_status.json
