@@ -1,4 +1,4 @@
-pub const TEMP_DIR_LOCATION: &str = "/zmnt/";
+pub const TEMP_DIR_LOCATION: &str = "./temp/";
 
 pub const STATE_FILE_LOCATION: &str = "./status.json";
 

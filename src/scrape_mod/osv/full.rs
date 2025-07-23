@@ -113,6 +113,9 @@ pub async fn scrape_osv_full(
         .await?;
     }
 
+    log::info!("Committing transaction.");
+    tx.commit().await?;
+
     log::info!("Removing temporary files.");
     fs::remove_file(&csv_path)?;
     fs::remove_file(&download_path)?;
@@ -153,6 +156,7 @@ pub async fn create_csv(
 
     let mut buffer: String = String::with_capacity(FIRST_TIME_SEND_TO_DATABASE_BUFFER_SIZE);
     let mut processed_file_count = 0;
+    let mut errors_count = 0;
     for file_i in 0..archive.len() {
         let mut file = archive.by_index(file_i)?;
 
@@ -179,8 +183,15 @@ pub async fn create_csv(
                 let res_ok = match res {
                     Ok(v) => v,
                     Err(err) => {
-                        log::error!("{}", &buffer);
-                        panic!("{file_i}: {err}");
+                        log::error!("Failed to process file {file_i}. File is probably badly formatted.\n{err}");
+                        if errors_count < 5 {
+                            log::error!("File contents:\n{}", &buffer);
+                        }
+                        errors_count += 1;
+                        if errors_count > 100 {
+                            panic!("Too many errors have occurred. The code schema representation is likely incorrect.")
+                        }
+                        continue;
                     }
                 };
                 res_ok
@@ -211,6 +222,10 @@ pub async fn create_csv(
         "Finished. Total processing time: {:?}",
         processing_start.elapsed()
     );
+
+    if errors_count > 0 {
+        log::warn!("{errors_count} errors found. Not all files have been processed.");
+    }
 
     Ok(processed_file_count)
 }
